@@ -489,13 +489,13 @@ const PaletteEntry PALETTE[6] = {
 // Floyd-Steinberg dither the RGB565 frame down to the 6 panel colors.
 // Raw RGB565 must never be pushed: at 4 bpp the sprite stores
 // color & 0x0F, i.e. it expects palette nibbles, not RGB values.
-void ditherToPanel(const uint16_t *fb, int w, int h) {
+bool ditherToPanel(const uint16_t *fb, int w, int h) {
     Serial.println("dithering to 6-color palette...");
     const int stride = (w + 2) * 3; // per-channel error, 1-px guard each side
     int16_t *errs = (int16_t *)calloc(2 * stride, sizeof(int16_t));
     if (!errs) {
         Serial.println("dither buffer alloc failed");
-        return;
+        return false;
     }
     int16_t *cur = errs, *next = errs + stride;
     for (int y = 0; y < h; y++) {
@@ -539,6 +539,7 @@ void ditherToPanel(const uint16_t *fb, int w, int h) {
     }
     free(errs);
     Serial.println("dithering done");
+    return true;
 }
 
 // Decode the JPEG into a full RGB565 frame in PSRAM, then dither it to
@@ -572,9 +573,9 @@ bool renderJpeg(uint8_t *buf, size_t len) {
             }
         }
     }
-    ditherToPanel(fb, w, h);
+    bool ok = ditherToPanel(fb, w, h);
     free(fb);
-    return true;
+    return ok;
 }
 
 bool fetchAndShowImage() {
@@ -873,13 +874,13 @@ const PaletteEntry PALETTE[6] = {
 // Floyd-Steinberg dither the RGB565 frame down to the 6 panel colors.
 // Raw RGB565 must never be pushed: at 4 bpp the sprite stores
 // color & 0x0F, i.e. it expects palette nibbles, not RGB values.
-void ditherToPanel(const uint16_t *fb, int w, int h) {
+bool ditherToPanel(const uint16_t *fb, int w, int h) {
     Serial.println("dithering to 6-color palette...");
     const int stride = (w + 2) * 3; // per-channel error, 1-px guard each side
     int16_t *errs = (int16_t *)calloc(2 * stride, sizeof(int16_t));
     if (!errs) {
         Serial.println("dither buffer alloc failed");
-        return;
+        return false;
     }
     int16_t *cur = errs, *next = errs + stride;
     for (int y = 0; y < h; y++) {
@@ -923,6 +924,7 @@ void ditherToPanel(const uint16_t *fb, int w, int h) {
     }
     free(errs);
     Serial.println("dithering done");
+    return true;
 }
 
 // Decode the JPEG into a full RGB565 frame in PSRAM, then dither it to
@@ -956,9 +958,9 @@ bool renderJpeg(uint8_t *buf, size_t len) {
             }
         }
     }
-    ditherToPanel(fb, w, h);
+    bool ok = ditherToPanel(fb, w, h);
     free(fb);
-    return true;
+    return ok;
 }
 
 // Fetch the image into the framebuffer (no update() yet — the caller
@@ -1033,6 +1035,11 @@ void goToSleep() {
     epaper.sleep();                    // panel low-power mode
     pinMode(EPAPER_EN_PIN, OUTPUT);    // cut panel power rail
     digitalWrite(EPAPER_EN_PIN, LOW);
+    // Deep sleep floats the pads unless held: latch the enable lines low
+    // so the panel and battery divider stay off while sleeping.
+    gpio_hold_en((gpio_num_t)EPAPER_EN_PIN);
+    gpio_hold_en((gpio_num_t)BATTERY_EN_PIN);
+    gpio_deep_sleep_hold_en();
     esp_sleep_enable_timer_wakeup(SLEEP_SECONDS * 1000000ULL);
     esp_sleep_enable_ext1_wakeup(BUTTON_WAKE_MASK, ESP_EXT1_WAKEUP_ANY_LOW);
     esp_deep_sleep_start();
@@ -1044,6 +1051,11 @@ void setup() {
     bootCount++;
     Serial.printf("ee02-playground: task 5 — boot #%u, wake: %s\n",
                   bootCount, wakeReason());
+
+    // Release the pin holds from the previous deep sleep (no-op on first
+    // boot) so the panel and battery divider can be driven again.
+    gpio_hold_dis((gpio_num_t)EPAPER_EN_PIN);
+    gpio_hold_dis((gpio_num_t)BATTERY_EN_PIN);
 
     pinMode(BTN_REFRESH, INPUT);
     pinMode(LED_PIN, OUTPUT);

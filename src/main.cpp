@@ -75,11 +75,20 @@ int batteryPercent(int32_t mv) {
     return 0;
 }
 
+// Possible reasons: "timer" (hourly refresh), "btn-prev"/"btn-refresh"/
+// "btn-next" (which user button ended the sleep), "power-on" (cold start:
+// power switch, USB plug, RESET, or a fresh flash).
 const char *wakeReason() {
     switch (esp_sleep_get_wakeup_cause()) {
         case ESP_SLEEP_WAKEUP_TIMER: return "timer";
-        case ESP_SLEEP_WAKEUP_EXT1:  return "button";
-        default:                     return "power-on/reset";
+        case ESP_SLEEP_WAKEUP_EXT1: {
+            uint64_t bits = esp_sleep_get_ext1_wakeup_status();
+            if (bits & (1ULL << BTN_PREV))    return "btn-prev";
+            if (bits & (1ULL << BTN_REFRESH)) return "btn-refresh";
+            if (bits & (1ULL << BTN_NEXT))    return "btn-next";
+            return "button";
+        }
+        default: return "power-on";
     }
 }
 
@@ -326,7 +335,7 @@ bool syncClock() {
 // inferred from the voltage rising between wakes.
 void drawStatusFooter(int32_t vbatMv, int32_t deltaMv, bool haveDelta,
                       bool haveTime) {
-    String status;
+    String status = "wake: " + String(wakeReason()) + "  |  ";
     struct tm now;
     if (haveTime && getLocalTime(&now, 100)) {
         char dow[16], hm[8];

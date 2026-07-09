@@ -59,16 +59,18 @@ void showProvisioningScreenOnce() {
 void configModeCallback(WiFiManager *wm) {
     Serial.printf("config portal up: join \"%s\", then open http://%s\n",
                   AP_NAME, WiFi.softAPIP().toString().c_str());
-    // Fallback draw only (e.g. saved credentials went stale): this callback
-    // fires before the portal web server starts, so a ~30 s draw here would
-    // block the portal. The primary path draws before autoConnect() — see
-    // connectWifi().
+    // Fallback draw (saved credentials went stale, so the pre-draw in
+    // connectWifi() was skipped). This callback fires before the portal
+    // web server starts, so the ~30 s draw delays the portal — accepted:
+    // the user can't follow instructions they haven't seen yet, and by
+    // the time the panel shows them the portal is up.
     showProvisioningScreenOnce();
 }
 
 // Connect with saved credentials, or open the captive portal on first
 // boot / after forget. Blocks until connected or portal timeout.
 bool connectWifi() {
+    provisioningScreenShown = false; // each attempt may open a fresh portal
     WiFiManager wm;
     wm.setAPCallback(configModeCallback);
     wm.setConfigPortalTimeout(300); // give up after 5 min, don't hang forever

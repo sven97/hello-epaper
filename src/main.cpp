@@ -5,6 +5,7 @@
 #include <WiFiManager.h>
 #include <HTTPClient.h>
 #include <JPEGDecoder.h>
+#include <time.h>
 
 EPaper epaper;
 
@@ -20,6 +21,7 @@ constexpr uint8_t EPAPER_EN_PIN = 43;    // panel power enable
 constexpr uint64_t SLEEP_SECONDS = 60 * 60; // 1 hour
 
 const char *AP_NAME = "EE02-Setup";
+const char *TIMEZONE = "PST8PDT,M3.2.0,M11.1.0"; // America/Los_Angeles
 
 // picsum serves progressive JPEGs, which embedded decoders can't parse;
 // images.weserv.nl re-encodes to baseline. The random= value defeats
@@ -309,21 +311,47 @@ bool fetchImage() {
     return true;
 }
 
-// The charger (BQ24070) works autonomously and its status pins only drive
-// the onboard LEDs, so charging is inferred from the voltage trend across
-// wakes: on charge, the measured voltage sits well above resting and rises.
-void drawStatusFooter(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
-    String status = "boot #" + String(bootCount) + "  wake: " +
-                    wakeReason() + "  vbat: " +
-                    String(vbatMv / 1000.0f, 2) + " V ~" +
-                    String(batteryPercent(vbatMv)) + "%";
-    if (haveDelta) {
-        status += " (";
-        if (deltaMv >= 0) status += "+";
-        status += String(deltaMv) + " mV";
-        if (deltaMv >= 20) status += ", charging";
-        status += ")";
+// One NTP sync per wake — the RTC drifts and deep sleep is long, and we're
+// online anyway. Only the footer needs wall-clock time.
+bool syncClock() {
+    configTzTime(TIMEZONE, "pool.ntp.org");
+    struct tm now;
+    return getLocalTime(&now, 10000);
+}
+
+// Footer format (panel font is ASCII-only, so "|" stands in for a middle
+// dot): last: Wed Jul 9 14:32 | next: 15:32 | wifi: <ssid> -38dBm |
+// batt: 74% (3.91V, +23mV, chg). The charger (BQ24070) works autonomously
+// and its status pins only drive the onboard LEDs, so charging ("chg") is
+// inferred from the voltage rising between wakes.
+void drawStatusFooter(int32_t vbatMv, int32_t deltaMv, bool haveDelta,
+                      bool haveTime) {
+    String status;
+    struct tm now;
+    if (haveTime && getLocalTime(&now, 100)) {
+        char dow[16], hm[8];
+        strftime(dow, sizeof(dow), "%a %b", &now);
+        strftime(hm, sizeof(hm), "%H:%M", &now);
+        status += "last: " + String(dow) + " " + String(now.tm_mday) + " " +
+                  String(hm);
+        time_t next = time(nullptr) + (time_t)SLEEP_SECONDS;
+        struct tm nextTm;
+        localtime_r(&next, &nextTm);
+        strftime(hm, sizeof(hm), "%H:%M", &nextTm);
+        status += "  |  next: " + String(hm);
+    } else {
+        status += "last: --  |  next: --";
     }
+    status += "  |  wifi: " + WiFi.SSID() + " " + String(WiFi.RSSI()) + "dBm";
+    status += "  |  batt: " + String(batteryPercent(vbatMv)) + "% (" +
+              String(vbatMv / 1000.0f, 2) + "V";
+    if (haveDelta) {
+        status += ", ";
+        if (deltaMv >= 0) status += "+";
+        status += String(deltaMv) + "mV";
+        if (deltaMv >= 20) status += ", chg";
+    }
+    status += ")";
     epaper.fillRect(0, 1560, 1200, 40, TFT_WHITE);
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
     epaper.drawString(status, 20, 1568, 2);
@@ -386,7 +414,9 @@ void setup() {
     if (!connectWifi()) {
         showError("wifi setup failed or timed out");
     } else if (fetchImage()) {
-        drawStatusFooter(vbatMv, deltaMv, haveDelta);
+        bool haveTime = syncClock();
+        if (!haveTime) Serial.println("NTP sync failed — footer shows no time");
+        drawStatusFooter(vbatMv, deltaMv, haveDelta, haveTime);
         Serial.println("updating panel (takes ~20-30 s)...");
         epaper.update();
         Serial.println("done");

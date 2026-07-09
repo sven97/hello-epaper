@@ -481,8 +481,24 @@ void doFetchCycle(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
 }
 
 void setup() {
+    // Instant acknowledgment: blink before anything else so a button press
+    // gets feedback in ~0.5 s (the panel itself takes ~30 s to change).
+    // 1 blink = refresh, 2 = footer toggle, 3 = pin/freeze.
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, HIGH);
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT1) {
+        uint64_t ackBits = esp_sleep_get_ext1_wakeup_status();
+        int n = (ackBits & (1ULL << BTN_REFRESH)) ? 1
+              : (ackBits & (1ULL << BTN_PREV))    ? 2
+              : (ackBits & (1ULL << BTN_NEXT))    ? 3 : 0;
+        blinkLed(n);
+    }
+
     Serial.begin(115200);
-    delay(2000);
+    // USB-CDC needs ~2 s before prints are visible — only worth paying on a
+    // cold start (bench/debug). Button and timer wakes get a token delay.
+    delay(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED ? 2000
+                                                                     : 200);
     bootCount++;
     Serial.printf("ee02-playground: task 5 — boot #%u, wake: %s\n",
                   bootCount, wakeReason());
@@ -506,7 +522,6 @@ void setup() {
     gpio_hold_dis((gpio_num_t)BATTERY_EN_PIN);
 
     pinMode(BTN_REFRESH, INPUT);
-    pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, LOW); // LED on while awake
 
     int32_t vbatMv = readBatteryMv();
@@ -525,9 +540,12 @@ void setup() {
     epaper.begin();
 
     // Hold refresh through power-on (still held after the 2 s boot delay)
-    // to forget saved wifi. A short press that merely woke us from deep
-    // sleep is released by now and does NOT trigger this.
-    if (digitalRead(BTN_REFRESH) == LOW) {
+    // to forget saved wifi. Gated on the power-on wake cause: button wakes
+    // now only pay a 200 ms boot delay, so a moderately long refresh press
+    // could still be down here — cause gating (not just release timing)
+    // keeps this a power-on-only gesture.
+    if (cause == ESP_SLEEP_WAKEUP_UNDEFINED &&
+        digitalRead(BTN_REFRESH) == LOW) {
         Serial.println("refresh held at boot — forgetting saved wifi");
         WiFiManager wm;
         wm.resetSettings();

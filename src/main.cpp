@@ -30,20 +30,23 @@ String imageUrl() {
 }
 
 RTC_DATA_ATTR uint32_t bootCount = 0;
+RTC_DATA_ATTR int32_t lastVbatMv = -1; // survives deep sleep, not reset/flash
 
-float readBatteryVoltage() {
-    analogReadResolution(12);
+// Battery voltage in millivolts, via the S3's eFuse-calibrated ADC
+// (analogReadMilliVolts) — the naive raw/4095*3.3 conversion read 20-30 %
+// low because the ADC saturates below 3.3 V at default attenuation.
+int32_t readBatteryMv() {
     pinMode(BATTERY_ADC_PIN, INPUT);
     pinMode(BATTERY_EN_PIN, OUTPUT);
     digitalWrite(BATTERY_EN_PIN, HIGH);
     delay(5);
-    uint32_t sum = 0;
+    uint32_t sumMv = 0;
     for (int i = 0; i < 10; i++) {
-        sum += analogRead(BATTERY_ADC_PIN);
+        sumMv += analogReadMilliVolts(BATTERY_ADC_PIN);
         delay(2);
     }
     digitalWrite(BATTERY_EN_PIN, LOW);
-    return (sum / 10 / 4095.0f) * 3.3f * 2.0f; // /2 divider
+    return (int32_t)(sumMv / 10) * 2; // /2 divider on the board
 }
 
 const char *wakeReason() {
@@ -282,9 +285,20 @@ bool fetchImage() {
     return true;
 }
 
-void drawStatusFooter(float vbat) {
+// The charger (BQ24070) works autonomously and its status pins only drive
+// the onboard LEDs, so charging is inferred from the voltage trend across
+// wakes: on charge, the measured voltage sits well above resting and rises.
+void drawStatusFooter(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     String status = "boot #" + String(bootCount) + "  wake: " +
-                    wakeReason() + "  vbat: " + String(vbat, 2) + " V";
+                    wakeReason() + "  vbat: " +
+                    String(vbatMv / 1000.0f, 2) + " V";
+    if (haveDelta) {
+        status += " (";
+        if (deltaMv >= 0) status += "+";
+        status += String(deltaMv) + " mV";
+        if (deltaMv >= 20) status += ", charging";
+        status += ")";
+    }
     epaper.fillRect(0, 1560, 1200, 40, TFT_WHITE);
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
     epaper.drawString(status, 20, 1568, 2);
@@ -322,8 +336,15 @@ void setup() {
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, LOW); // LED on while awake
 
-    float vbat = readBatteryVoltage();
-    Serial.printf("battery: %.2f V\n", vbat);
+    int32_t vbatMv = readBatteryMv();
+    bool haveDelta = lastVbatMv >= 0;
+    int32_t deltaMv = haveDelta ? vbatMv - lastVbatMv : 0;
+    lastVbatMv = vbatMv;
+    if (haveDelta)
+        Serial.printf("battery: %.2f V (%+d mV since last wake)\n",
+                      vbatMv / 1000.0f, (int)deltaMv);
+    else
+        Serial.printf("battery: %.2f V\n", vbatMv / 1000.0f);
 
     epaper.begin();
 
@@ -339,7 +360,7 @@ void setup() {
     if (!connectWifi()) {
         showError("wifi setup failed or timed out");
     } else if (fetchImage()) {
-        drawStatusFooter(vbat);
+        drawStatusFooter(vbatMv, deltaMv, haveDelta);
         Serial.println("updating panel (takes ~20-30 s)...");
         epaper.update();
         Serial.println("done");

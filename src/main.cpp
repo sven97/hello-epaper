@@ -6,6 +6,8 @@
 #include <HTTPClient.h>
 #include <JPEGDecoder.h>
 #include <time.h>
+#include <LittleFS.h>
+#include <Preferences.h>
 
 EPaper epaper;
 
@@ -22,6 +24,14 @@ constexpr uint64_t SLEEP_SECONDS = 60 * 60; // 1 hour
 
 const char *AP_NAME = "EE02-Setup";
 const char *TIMEZONE = "PST8PDT,M3.2.0,M11.1.0"; // America/Los_Angeles
+
+Preferences prefs;                       // NVS namespace "frame"
+const char *FRAME_PATH = "/frame.bin";
+// Native sprite buffer: 1600*1200 px at 4 bpp
+constexpr size_t FRAME_BYTES = 1600UL * 1200UL / 2;
+
+bool footerVisible = true;
+bool held = false;
 
 // picsum serves progressive JPEGs, which embedded decoders can't parse;
 // images.weserv.nl re-encodes to baseline. The random= value defeats
@@ -90,6 +100,33 @@ const char *wakeReason() {
         }
         default: return "power-on";
     }
+}
+
+// The sprite's raw 4 bpp buffer IS the display state (post-rotation), so a
+// byte dump of it round-trips the picture exactly. Saved BEFORE the footer
+// is drawn, so redraws can choose footer-on or footer-off.
+bool saveFrame() {
+    File f = LittleFS.open(FRAME_PATH, "w");
+    if (!f) { Serial.println("frame save: open failed"); return false; }
+    uint8_t *buf = (uint8_t *)epaper.frameBuffer(1);
+    size_t written = f.write(buf, FRAME_BYTES);
+    f.close();
+    Serial.printf("frame save: %u bytes\n", (unsigned)written);
+    return written == FRAME_BYTES;
+}
+
+bool loadFrame() {
+    File f = LittleFS.open(FRAME_PATH, "r");
+    if (!f || f.size() != FRAME_BYTES) {
+        Serial.println("frame load: missing or wrong size");
+        if (f) f.close();
+        return false;
+    }
+    uint8_t *buf = (uint8_t *)epaper.frameBuffer(1);
+    size_t got = f.read(buf, FRAME_BYTES);
+    f.close();
+    Serial.printf("frame load: %u bytes\n", (unsigned)got);
+    return got == FRAME_BYTES;
 }
 
 void showError(const String &msg) {
@@ -333,25 +370,48 @@ bool syncClock() {
 // batt: 74% (3.91V, +23mV, chg). The charger (BQ24070) works autonomously
 // and its status pins only drive the onboard LEDs, so charging ("chg") is
 // inferred from the voltage rising between wakes.
-void drawStatusFooter(int32_t vbatMv, int32_t deltaMv, bool haveDelta,
-                      bool haveTime) {
+
+// Persist what the footer needs on non-fetch wakes. Must run on EVERY
+// successful fetch, whether or not the footer is drawn — otherwise a
+// hidden-footer fetch leaves stale metadata for the next footer-on redraw.
+void recordFetchMetadata() {
+    prefs.putULong("lastEpoch", (uint32_t)time(nullptr));
+    prefs.putString("wifiDesc",
+                    WiFi.SSID() + " " + String(WiFi.RSSI()) + "dBm");
+}
+
+void drawStatusFooter(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     String status = "wake: " + String(wakeReason()) + "  |  ";
-    struct tm now;
-    if (haveTime && getLocalTime(&now, 100)) {
+
+    // Metadata is recorded by recordFetchMetadata() on EVERY successful
+    // fetch (footer visible or not); the footer only ever reads it.
+    time_t lastEpoch = (time_t)prefs.getULong("lastEpoch", 0);
+    String wifiDesc = prefs.getString("wifiDesc", "?");
+
+    if (lastEpoch > 1600000000) { // sanity: clock was ever synced
+        struct tm lastTm;
+        localtime_r(&lastEpoch, &lastTm);
         char dow[16], hm[8];
-        strftime(dow, sizeof(dow), "%a %b", &now);
-        strftime(hm, sizeof(hm), "%H:%M", &now);
-        status += "last: " + String(dow) + " " + String(now.tm_mday) + " " +
-                  String(hm);
+        strftime(dow, sizeof(dow), "%a %b", &lastTm);
+        strftime(hm, sizeof(hm), "%H:%M", &lastTm);
+        status += "last: " + String(dow) + " " + String(lastTm.tm_mday) +
+                  " " + String(hm);
+    } else {
+        status += "last: --";
+    }
+
+    if (held) {
+        status += "  |  next: held";
+    } else {
         time_t next = time(nullptr) + (time_t)SLEEP_SECONDS;
         struct tm nextTm;
         localtime_r(&next, &nextTm);
+        char hm[8];
         strftime(hm, sizeof(hm), "%H:%M", &nextTm);
         status += "  |  next: " + String(hm);
-    } else {
-        status += "last: --  |  next: --";
     }
-    status += "  |  wifi: " + WiFi.SSID() + " " + String(WiFi.RSSI()) + "dBm";
+
+    status += "  |  wifi: " + wifiDesc;
     status += "  |  batt: " + String(batteryPercent(vbatMv)) + "% (" +
               String(vbatMv / 1000.0f, 2) + "V";
     if (haveDelta) {
@@ -382,12 +442,79 @@ void goToSleep() {
     esp_deep_sleep_start();
 }
 
+// Timer wake while held: nothing to draw, panel was never woken and the
+// GPIO holds from the previous sleep are still latched — re-arm and go.
+void quickSleep() {
+    Serial.printf("held — back to sleep %llu s\n", SLEEP_SECONDS);
+    Serial.flush();
+    esp_sleep_enable_timer_wakeup(SLEEP_SECONDS * 1000000ULL);
+    esp_sleep_enable_ext1_wakeup(BUTTON_WAKE_MASK, ESP_EXT1_WAKEUP_ANY_LOW);
+    esp_deep_sleep_start();
+}
+
+void blinkLed(int times, int onOffMs = 150) {
+    for (int i = 0; i < times; i++) {
+        digitalWrite(LED_PIN, LOW);
+        delay(onOffMs);
+        digitalWrite(LED_PIN, HIGH);
+        delay(onOffMs);
+    }
+}
+
+// Fetch a new photo, dither it, persist it, and draw it (footer optional).
+// Called both for the "real" fetch wakes (power-on / btn-refresh / timer)
+// and as the fallback when a toggle wake finds no saved frame yet — this
+// is the helper that replaces the plan's illustrative `goto fetch`.
+void doFetchCycle(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
+    if (!connectWifi()) {
+        showError("wifi setup failed or timed out");
+    } else if (fetchImage()) {
+        syncClock();
+        saveFrame();
+        recordFetchMetadata();
+        if (footerVisible)
+            drawStatusFooter(vbatMv, deltaMv, haveDelta);
+        Serial.println("updating panel (takes ~20-30 s)...");
+        epaper.update();
+        Serial.println("done");
+    }
+}
+
 void setup() {
+    // Instant acknowledgment: blink before anything else so a button press
+    // gets feedback in ~0.5 s (the panel itself takes ~30 s to change).
+    // 1 blink = refresh, 2 = footer toggle, 3 = pin/freeze.
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, HIGH);
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT1) {
+        uint64_t ackBits = esp_sleep_get_ext1_wakeup_status();
+        int n = (ackBits & (1ULL << BTN_REFRESH)) ? 1
+              : (ackBits & (1ULL << BTN_PREV))    ? 2
+              : (ackBits & (1ULL << BTN_NEXT))    ? 3 : 0;
+        blinkLed(n, 80); // fast ack: even 3 blinks finish in ~480 ms
+    }
+
     Serial.begin(115200);
-    delay(2000);
+    // USB-CDC needs ~2 s before prints are visible — only worth paying on a
+    // cold start (bench/debug). Button and timer wakes get a token delay.
+    delay(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED ? 2000
+                                                                     : 200);
     bootCount++;
     Serial.printf("ee02-playground: task 5 — boot #%u, wake: %s\n",
                   bootCount, wakeReason());
+
+    prefs.begin("frame", false);
+    footerVisible = prefs.getBool("footer", true);
+    held = prefs.getBool("held", false);
+
+    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+    uint64_t btnBits = (cause == ESP_SLEEP_WAKEUP_EXT1)
+                           ? esp_sleep_get_ext1_wakeup_status() : 0;
+
+    // Held timer wake: skip everything, don't even touch the panel. The
+    // GPIO holds from the previous sleep are still latched, so this must
+    // run before the hold-release below.
+    if (cause == ESP_SLEEP_WAKEUP_TIMER && held) quickSleep(); // no return
 
     // Release the pin holds from the previous deep sleep (no-op on first
     // boot) so the panel and battery divider can be driven again.
@@ -395,7 +522,6 @@ void setup() {
     gpio_hold_dis((gpio_num_t)BATTERY_EN_PIN);
 
     pinMode(BTN_REFRESH, INPUT);
-    pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, LOW); // LED on while awake
 
     int32_t vbatMv = readBatteryMv();
@@ -409,26 +535,49 @@ void setup() {
         Serial.printf("battery: %.2f V ~%d%%\n",
                       vbatMv / 1000.0f, batteryPercent(vbatMv));
 
+    if (!LittleFS.begin(true)) Serial.println("LittleFS mount failed");
+
     epaper.begin();
 
     // Hold refresh through power-on (still held after the 2 s boot delay)
-    // to forget saved wifi. A short press that merely woke us from deep
-    // sleep is released by now and does NOT trigger this.
-    if (digitalRead(BTN_REFRESH) == LOW) {
+    // to forget saved wifi. Gated on the power-on wake cause: button wakes
+    // now only pay a 200 ms boot delay, so a moderately long refresh press
+    // could still be down here — cause gating (not just release timing)
+    // keeps this a power-on-only gesture.
+    if (cause == ESP_SLEEP_WAKEUP_UNDEFINED &&
+        digitalRead(BTN_REFRESH) == LOW) {
         Serial.println("refresh held at boot — forgetting saved wifi");
         WiFiManager wm;
         wm.resetSettings();
     }
 
-    if (!connectWifi()) {
-        showError("wifi setup failed or timed out");
-    } else if (fetchImage()) {
-        bool haveTime = syncClock();
-        if (!haveTime) Serial.println("NTP sync failed — footer shows no time");
-        drawStatusFooter(vbatMv, deltaMv, haveDelta, haveTime);
-        Serial.println("updating panel (takes ~20-30 s)...");
-        epaper.update();
-        Serial.println("done");
+    bool isToggleFooter = btnBits & (1ULL << BTN_PREV);
+    bool isToggleHold   = btnBits & (1ULL << BTN_NEXT);
+
+    if (isToggleFooter || isToggleHold) {
+        if (isToggleFooter) {
+            footerVisible = !footerVisible;
+            prefs.putBool("footer", footerVisible);
+            Serial.printf("footer now %s\n", footerVisible ? "on" : "off");
+        } else {
+            held = !held;
+            prefs.putBool("held", held);
+            Serial.printf("held now %s\n", held ? "on" : "off");
+            blinkLed(held ? 2 : 1);
+        }
+        bool needRedraw = isToggleFooter || footerVisible;
+        if (needRedraw && loadFrame()) {
+            if (footerVisible)
+                drawStatusFooter(vbatMv, deltaMv, haveDelta);
+            Serial.println("updating panel (takes ~20-30 s)...");
+            epaper.update();
+            Serial.println("done");
+        } else if (needRedraw) {
+            // No saved frame yet — fall back to a full fetch instead.
+            doFetchCycle(vbatMv, deltaMv, haveDelta);
+        }
+    } else {
+        doFetchCycle(vbatMv, deltaMv, haveDelta);
     }
 
     digitalWrite(LED_PIN, HIGH);

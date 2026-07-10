@@ -126,6 +126,14 @@ void setup() {
     // run before the hold-release below.
     if (cause == ESP_SLEEP_WAKEUP_TIMER && held) quickSleep(); // no return
 
+    // Dev mode wakes every minute so the USB port reappears for flashing,
+    // but a photo is only fetched when the hourly cadence is due.
+    if (cause == ESP_SLEEP_WAKEUP_TIMER && usbHostPresent()) {
+        time_t lastFetch = (time_t)prefs.getULong("lastEpoch", 0);
+        if (time(nullptr) - lastFetch < (time_t)SLEEP_SECONDS)
+            quickSleep(); // no return
+    }
+
     // Release the pin holds from the previous deep sleep (no-op on first
     // boot) so the panel and battery divider can be driven again.
     gpio_hold_dis((gpio_num_t)EPAPER_EN_PIN);

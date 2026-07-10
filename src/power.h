@@ -10,6 +10,10 @@ int batteryPercent(int32_t mv);
 // LED feedback (active-LOW LED on LED_PIN).
 void blinkLed(int times, int onOffMs = 150);
 
+// True when a USB *host* (not a charger) is attached — used for developer
+// mode (short sleeps so the serial port reappears frequently).
+bool usbHostPresent();
+
 // Full deep sleep: panel to low power, enable-line GPIOs latched low,
 // timer + any-button wake armed. Never returns.
 void goToSleep();

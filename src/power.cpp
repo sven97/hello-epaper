@@ -2,6 +2,26 @@
 #include "config.h"
 #include "display.h"
 #include "driver/gpio.h"
+#include "soc/usb_serial_jtag_reg.h"
+
+// A USB *host* (not a charger) sends a Start-of-Frame token every 1 ms,
+// which increments the USB-Serial-JTAG frame counter. Sampling it twice a
+// few ms apart detects a live host regardless of whether a terminal has
+// the port open — chargers and battery power leave it frozen.
+bool usbHostPresent() {
+    uint32_t f1 = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG);
+    delay(3);
+    return REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG) != f1;
+}
+
+// Hourly on the wall; every minute while a development host is attached.
+static uint64_t sleepSeconds() {
+    if (usbHostPresent()) {
+        Serial.println("usb host attached — dev mode, short sleep");
+        return DEV_SLEEP_SECONDS;
+    }
+    return SLEEP_SECONDS;
+}
 
 // Battery voltage in millivolts, via the S3's eFuse-calibrated ADC
 // (analogReadMilliVolts) — the naive raw/4095*3.3 conversion read 20-30 %
@@ -54,7 +74,8 @@ void blinkLed(int times, int onOffMs) {
 }
 
 void goToSleep() {
-    Serial.printf("sleeping %llu s (buttons also wake)...\n", SLEEP_SECONDS);
+    uint64_t secs = sleepSeconds();
+    Serial.printf("sleeping %llu s (buttons also wake)...\n", secs);
     Serial.flush();
     epaper.sleep();                    // panel low-power mode
     pinMode(EPAPER_EN_PIN, OUTPUT);    // cut panel power rail
@@ -64,15 +85,16 @@ void goToSleep() {
     gpio_hold_en((gpio_num_t)EPAPER_EN_PIN);
     gpio_hold_en((gpio_num_t)BATTERY_EN_PIN);
     gpio_deep_sleep_hold_en();
-    esp_sleep_enable_timer_wakeup(SLEEP_SECONDS * 1000000ULL);
+    esp_sleep_enable_timer_wakeup(secs * 1000000ULL);
     esp_sleep_enable_ext1_wakeup(BUTTON_WAKE_MASK, ESP_EXT1_WAKEUP_ANY_LOW);
     esp_deep_sleep_start();
 }
 
 void quickSleep() {
-    Serial.printf("held — back to sleep %llu s\n", SLEEP_SECONDS);
+    uint64_t secs = sleepSeconds();
+    Serial.printf("nothing to do — back to sleep %llu s\n", secs);
     Serial.flush();
-    esp_sleep_enable_timer_wakeup(SLEEP_SECONDS * 1000000ULL);
+    esp_sleep_enable_timer_wakeup(secs * 1000000ULL);
     esp_sleep_enable_ext1_wakeup(BUTTON_WAKE_MASK, ESP_EXT1_WAKEUP_ANY_LOW);
     esp_deep_sleep_start();
 }

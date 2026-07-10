@@ -61,9 +61,11 @@ Repo stays firmware-only. Two new modules, following the existing layout:
   is still held after boot) and in dev mode (the polled `pressed()` helper
   learns hold duration). No conflict with the KEY2-at-power-on
   forget-Wi-Fi gesture.
-- **Exit:** Save on the web page, another long-press, or a **10-minute
-  inactivity timeout** (battery guard). On exit the device runs a normal
-  fetch cycle so changes take effect visibly, then sleeps.
+- **Exit:** a valid Save on the web page (the response page confirms
+  "saved — device is applying settings"), another long-press, or a
+  **10-minute inactivity timeout** (battery guard). A valid save always
+  exits; to adjust again, re-enter config mode. On exit the device runs a
+  normal fetch cycle so changes take effect visibly, then sleeps.
 
 ## Settings surface (v1)
 

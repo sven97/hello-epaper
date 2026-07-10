@@ -29,7 +29,7 @@ constexpr uint8_t EPAPER_EN_PIN = 43;    // panel power enable
 constexpr uint64_t SLEEP_SECONDS = 60 * 60; // 1 hour
 
 const char *AP_NAME = "EE02-Setup";
-const char *TIMEZONE = "PST8PDT,M3.2.0,M11.1.0"; // America/Los_Angeles
+const char *TZ_API_URL = "http://ip-api.com/json?fields=status,timezone,offset";
 
 Preferences prefs;                       // NVS namespace "frame"
 const char *FRAME_PATH = "/frame.bin";
@@ -363,10 +363,57 @@ bool fetchImage() {
     return true;
 }
 
+// Set the TZ environment to a fixed UTC offset (seconds east of UTC).
+// POSIX TZ strings invert the sign: UTC+8 is written "UTC-8".
+void applyUtcOffset(long offsetSec) {
+    char tz[24];
+    long p = -offsetSec;
+    snprintf(tz, sizeof(tz), "UTC%+ld:%02ld", p / 3600, labs(p % 3600) / 60);
+    setenv("TZ", tz, 1);
+    tzset();
+}
+
+// Timezone is detected from the network's public IP on every fetch wake, so
+// DST changes and even relocating the frame self-correct within an hour.
+// The offset is a fixed value per wake (no DST rules needed — the API
+// already applied them). Cached in NVS for wakes where the API is down.
+long detectUtcOffset() {
+    WiFiClient client;
+    HTTPClient http;
+    http.begin(client, TZ_API_URL);
+    http.setTimeout(8000);
+    int code = http.GET();
+    if (code == HTTP_CODE_OK) {
+        String body = http.getString();
+        http.end();
+        int o = body.indexOf("\"offset\":");
+        if (body.indexOf("success") >= 0 && o >= 0) {
+            long off = body.substring(o + 9).toInt();
+            int t = body.indexOf("\"timezone\":\"");
+            String name = "?";
+            if (t >= 0) {
+                int e = body.indexOf('"', t + 12);
+                name = body.substring(t + 12, e);
+            }
+            Serial.printf("timezone: %s (UTC offset %+ld s)\n",
+                          name.c_str(), off);
+            prefs.putLong("tzOff", off);
+            return off;
+        }
+    } else {
+        http.end();
+    }
+    long cached = prefs.getLong("tzOff", 0);
+    Serial.printf("timezone: detect failed (HTTP %d), cached offset %+ld s\n",
+                  code, cached);
+    return cached;
+}
+
 // One NTP sync per wake — the RTC drifts and deep sleep is long, and we're
-// online anyway. Only the footer needs wall-clock time.
+// online anyway. Only the footer needs wall-clock time. configTime sets
+// both the TZ offset and SNTP in one call.
 bool syncClock() {
-    configTzTime(TIMEZONE, "pool.ntp.org");
+    configTime(detectUtcOffset(), 0, "pool.ntp.org");
     struct tm now;
     return getLocalTime(&now, 10000);
 }
@@ -512,6 +559,10 @@ void setup() {
     prefs.begin("frame", false);
     footerVisible = prefs.getBool("footer", true);
     held = prefs.getBool("held", false);
+    // TZ env doesn't survive deep sleep: without this, footer times on
+    // non-fetch wakes (footer/pin toggles) render as UTC. Fetch wakes
+    // overwrite it with a freshly detected offset in syncClock().
+    applyUtcOffset(prefs.getLong("tzOff", 0));
 
     esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
     uint64_t btnBits = (cause == ESP_SLEEP_WAKEUP_EXT1)

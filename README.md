@@ -8,6 +8,12 @@ Every hour it wakes from deep sleep, fetches a random photo, dithers it to
 the panel's six colors, refreshes, and goes back to sleep. Three buttons
 control it; a full-screen info page reports its own state.
 
+**Two personalities:** on battery or a charger it deep-sleeps between
+refreshes (months per charge). Plugged into a computer it enters **dev
+mode** — it stays awake, the serial port stays up for instant flashing,
+and the buttons are polled live. A USB *host* is detected via the
+USB-Serial-JTAG SOF frame counter, so chargers never trigger dev mode.
+
 ## Buttons
 
 | Silkscreen | GPIO | Function |
@@ -44,11 +50,13 @@ pio run -t upload    # flash over USB-C
 pio device monitor   # serial at 115200 (USB-CDC)
 ```
 
-**Flashing a sleeping board:** deep sleep drops the USB port. Either press
-a user button and run the upload within the wake window (a port-watching
-loop works well: `until ls /dev/cu.usbmodem* 2>/dev/null; do sleep 0.2;
-done; pio run -t upload`), or hold **BOOT**, tap **RESET**, release BOOT —
-then flash and press RESET after.
+**Flashing:** plugged into a computer, the board is in dev mode and never
+sleeps — `pio run -t upload` just works. If it was last running on
+battery/charger (asleep, USB port gone), wake it first: press any user
+button and run the upload within the wake window (a port-watching loop
+works well: `until ls /dev/cu.usbmodem* 2>/dev/null; do sleep 0.2; done;
+pio run -t upload`), wait for the hourly self-wake, or hold **BOOT**, tap
+**RESET**, release BOOT — then flash and press RESET after.
 
 ## Source layout
 

@@ -126,20 +126,15 @@ void setup() {
     // run before the hold-release below.
     if (cause == ESP_SLEEP_WAKEUP_TIMER && held) quickSleep(); // no return
 
-    // Dev mode wakes every minute so the USB port reappears for flashing,
-    // but a photo is only fetched when the hourly cadence is due.
-    if (cause == ESP_SLEEP_WAKEUP_TIMER && usbHostPresent()) {
-        time_t lastFetch = (time_t)prefs.getULong("lastEpoch", 0);
-        if (time(nullptr) - lastFetch < (time_t)SLEEP_SECONDS)
-            quickSleep(); // no return
-    }
 
     // Release the pin holds from the previous deep sleep (no-op on first
     // boot) so the panel and battery divider can be driven again.
     gpio_hold_dis((gpio_num_t)EPAPER_EN_PIN);
     gpio_hold_dis((gpio_num_t)BATTERY_EN_PIN);
 
-    pinMode(BTN_NEW_PIC, INPUT);
+    pinMode(BTN_NEW_PIC, INPUT); // external pull-ups on board
+    pinMode(BTN_INFO, INPUT);    // polled by loop() in dev mode
+    pinMode(BTN_PIN, INPUT);
     digitalWrite(LED_PIN, LOW); // LED on while awake
 
     int32_t deltaMv;
@@ -171,7 +166,48 @@ void setup() {
         doFetchCycle(vbatMv, deltaMv, haveDelta);
 
     digitalWrite(LED_PIN, HIGH);
-    goToSleep(); // never returns
+    maybeSleep(); // deep sleep — or return, in dev mode, and run loop()
 }
 
-void loop() {}
+// Debounced falling-edge press: returns true once per physical press.
+static bool pressed(uint8_t pin) {
+    if (digitalRead(pin) != LOW) return false;
+    delay(30);
+    if (digitalRead(pin) != LOW) return false;
+    while (digitalRead(pin) == LOW) delay(10);
+    return true;
+}
+
+// Only runs in dev mode (USB host attached): the port stays up for
+// instant flashing, buttons are polled instead of EXT1-woken, and the
+// hourly photo cadence still applies. Host gone -> normal deep sleep.
+void loop() {
+    if (!usbHostPresent()) {
+        Serial.println("usb host gone — leaving dev mode");
+        goToSleep(); // never returns
+    }
+
+    bool info = pressed(BTN_INFO);
+    bool pin = !info && pressed(BTN_PIN);
+    bool newPic = !info && !pin && pressed(BTN_NEW_PIC);
+
+    bool fetchDue = false;
+    if (!held) {
+        time_t lastFetch = (time_t)prefs.getULong("lastEpoch", 0);
+        fetchDue = time(nullptr) - lastFetch >= (time_t)SLEEP_SECONDS;
+    }
+
+    if (info || pin || newPic || fetchDue) {
+        digitalWrite(LED_PIN, LOW);
+        int32_t deltaMv;
+        bool haveDelta;
+        int32_t vbatMv = readBatteryWithDelta(deltaMv, haveDelta);
+        if (info || pin)
+            handleToggleWake(info, vbatMv, deltaMv, haveDelta);
+        else
+            doFetchCycle(vbatMv, deltaMv, haveDelta);
+        digitalWrite(LED_PIN, HIGH);
+    }
+
+    delay(50);
+}

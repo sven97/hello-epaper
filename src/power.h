@@ -18,6 +18,10 @@ bool usbHostPresent();
 // timer + any-button wake armed. Never returns.
 void goToSleep();
 
+// goToSleep(), unless a USB host is attached (dev mode) — then returns
+// and loop() runs with live button polling and the port always up.
+void maybeSleep();
+
 // Held timer wake: panel was never touched and the GPIO holds from the
 // previous sleep are still latched — just re-arm and go. Never returns.
 void quickSleep();

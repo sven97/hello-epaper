@@ -23,10 +23,6 @@ constexpr uint8_t EPAPER_EN_PIN = 43;    // panel power enable
 
 // ---- Behavior ------------------------------------------------------------
 constexpr uint64_t SLEEP_SECONDS = 60 * 60; // 1 hour between refreshes
-// Developer mode: when a USB host is attached, sleep this long instead so
-// the serial port reappears every minute and flashing needs no button
-// ritual. Chargers don't send USB frames, so wall/battery use is unaffected.
-constexpr uint64_t DEV_SLEEP_SECONDS = 60;
 
 inline const char *AP_NAME = "EE02-Setup";
 inline const char *TZ_API_URL =

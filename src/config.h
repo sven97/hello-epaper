@@ -33,9 +33,5 @@ inline const char *AP_NAME = "EE02-Setup";
 inline const char *TZ_API_URL =
     "http://ip-api.com/json?fields=status,timezone,offset";
 
-// Saved-frame file (LittleFS). Native sprite buffer: 1600*1200 px at 4 bpp.
-inline const char *FRAME_PATH = "/frame.bin";
-constexpr size_t FRAME_BYTES = 1600UL * 1200UL / 2;
-
 // Any epoch below this means the clock was never NTP-synced (Sep 2020).
 constexpr time_t CLOCK_SANE_EPOCH = 1600000000;

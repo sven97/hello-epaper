@@ -3,7 +3,6 @@
 #include "settings.h"
 #include "state.h"
 #include <JPEGDecoder.h>
-#include <LittleFS.h>
 
 EPaper epaper;
 
@@ -111,39 +110,6 @@ bool renderJpeg(uint8_t *buf, size_t len) {
     bool ok = ditherToPanel(fb, w, h);
     free(fb);
     return ok;
-}
-
-// The sprite's raw 4 bpp buffer IS the display state (post-rotation), so a
-// byte dump of it round-trips the picture exactly. Saved right after the
-// dither, so redraws start from the clean photo.
-bool saveFrame() {
-    File f = LittleFS.open(FRAME_PATH, "w");
-    if (!f) { Serial.println("frame save: open failed"); return false; }
-    uint8_t *buf = (uint8_t *)epaper.frameBuffer(1);
-    size_t written = f.write(buf, FRAME_BYTES);
-    f.close();
-    Serial.printf("frame save: %u bytes\n", (unsigned)written);
-    if (written != FRAME_BYTES) return false;
-    prefs.putUChar("frameRot", settings.rotation);
-    return true;
-}
-
-bool loadFrame() {
-    if (prefs.getUChar("frameRot", DEFAULT_ROTATION) != settings.rotation) {
-        Serial.println("frame load: saved under different rotation");
-        return false;
-    }
-    File f = LittleFS.open(FRAME_PATH, "r");
-    if (!f || f.size() != FRAME_BYTES) {
-        Serial.println("frame load: missing or wrong size");
-        if (f) f.close();
-        return false;
-    }
-    uint8_t *buf = (uint8_t *)epaper.frameBuffer(1);
-    size_t got = f.read(buf, FRAME_BYTES);
-    f.close();
-    Serial.printf("frame load: %u bytes\n", (unsigned)got);
-    return got == FRAME_BYTES;
 }
 
 void showError(const String &msg) {

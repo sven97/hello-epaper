@@ -1,6 +1,5 @@
 // EE02 e-paper photo frame — wake, act, deep-sleep. See README.md.
 #include <Arduino.h>
-#include <LittleFS.h>
 #include <WiFiManager.h>
 #include "driver/gpio.h"
 #include <time.h>
@@ -36,13 +35,12 @@ static int32_t readBatteryWithDelta(int32_t &deltaMv, bool &haveDelta) {
     return vbatMv;
 }
 
-// Fetch a new photo, dither it, persist it, and show it full-bleed.
+// Fetch a new photo, dither it, and show it full-bleed.
 static void doFetchCycle() {
     if (!connectWifi()) {
         showError("wifi setup failed or timed out");
     } else if (fetchImage()) {
         syncClock();
-        saveFrame();
         recordFetchMetadata();
         Serial.println("updating panel (takes ~20-30 s)...");
         epaper.update();
@@ -147,8 +145,6 @@ void setup() {
     int32_t deltaMv;
     bool haveDelta;
     int32_t vbatMv = readBatteryWithDelta(deltaMv, haveDelta);
-
-    if (!LittleFS.begin(true)) Serial.println("LittleFS mount failed");
 
     epaper.begin();
     applyOrientation(); // settings.rotation; UI + dither target follow

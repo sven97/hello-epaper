@@ -124,10 +124,12 @@ RESET after.
 src/config.h      pins, buttons, defaults, constants
 src/settings.*    runtime configuration (NVS-backed)
 src/logic/        pure decision logic — host-testable, no Arduino deps
-src/display.*     EPaper object, 6-color dither, JPEG decode, frame save/load
+src/display.*     EPaper object, 6-color dither, JPEG decode
 src/net.*         Wi-Fi provisioning (WiFiManager), photo fetch, timezone+NTP
 src/portal.*      settings web portal (served while the status page shows)
+src/portal_html.h embedded HTML for the settings portal
 src/power.*       battery ADC + percent curve, LED, deep-sleep entry
+src/state.h       shared globals (prefs, pin state)
 src/ui.*          wake reason, status page, fetch metadata
 src/main.cpp      wake dispatch: which wake does what
 test/             native unit tests (pio test -e native)

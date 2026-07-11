@@ -13,7 +13,7 @@ Manual pass on a real EE02 before tagging a release. Monitor at 115200.
 
 ## Settings behavior
 - [ ] Interval 15 min: next timer wake ~15 min later (serial timestamps)
-- [ ] Orientation landscape: photo fetches at 1600×1200 and renders correctly; status page centered; saved-frame reload after RESET shows "different rotation" and refetches
+- [ ] Orientation landscape: photo fetches at 1600×1200 and renders correctly; status page centered
 - [ ] Quiet hours spanning now: sleep log shows extended sleep to window end
 - [ ] Manual timezone: fetch log shows no ip-api call; times correct
 - [ ] Paused checkbox: equals KEY3 (timer wakes take the quick-sleep path)

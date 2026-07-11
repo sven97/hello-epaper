@@ -84,9 +84,9 @@ void drawInfoScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     epaper.setTextDatum(MC_DATUM); // strings centered on their anchor point
     epaper.setTextSize(2);
     const int lineH = 100;
-    int y = 800 - ((n - 1) * lineH) / 2; // vertically center the block
+    int y = epaper.height() / 2 - ((n - 1) * lineH) / 2; // vertically center the block
     for (int i = 0; i < n; i++, y += lineH)
-        epaper.drawString(lines[i], 600, y, 4);
+        epaper.drawString(lines[i], epaper.width() / 2, y, 4);
     epaper.setTextSize(1);
     epaper.setTextDatum(TL_DATUM);
 }

@@ -20,6 +20,8 @@ static String imageUrl() {
     return String(u.c_str());
 }
 
+// Layout note: all y-coordinates stay under 1200 so the screen renders
+// in both portrait (1600 tall) and landscape (1200 tall).
 static void showProvisioningScreen() {
     epaper.fillScreen(TFT_WHITE);
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);

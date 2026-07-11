@@ -146,6 +146,7 @@ void setup() {
     if (!LittleFS.begin(true)) Serial.println("LittleFS mount failed");
 
     epaper.begin();
+    applyOrientation(); // settings.rotation; UI + dither target follow
 
     // Hold BTN_NEW_PIC through power-on (still held after the 2 s boot
     // delay) to forget saved wifi. Gated on the power-on wake cause:

@@ -1,9 +1,13 @@
 #include "display.h"
 #include "config.h"
+#include "settings.h"
+#include "state.h"
 #include <JPEGDecoder.h>
 #include <LittleFS.h>
 
 EPaper epaper;
+
+void applyOrientation() { epaper.setRotation(settings.rotation); }
 
 // Spectra 6 palette: panel nibble index (drawPixel stores it directly at
 // 4 bpp) + sRGB approximation used as the dithering target.
@@ -119,10 +123,16 @@ bool saveFrame() {
     size_t written = f.write(buf, FRAME_BYTES);
     f.close();
     Serial.printf("frame save: %u bytes\n", (unsigned)written);
-    return written == FRAME_BYTES;
+    if (written != FRAME_BYTES) return false;
+    prefs.putUChar("frameRot", settings.rotation);
+    return true;
 }
 
 bool loadFrame() {
+    if (prefs.getUChar("frameRot", DEFAULT_ROTATION) != settings.rotation) {
+        Serial.println("frame load: saved under different rotation");
+        return false;
+    }
     File f = LittleFS.open(FRAME_PATH, "r");
     if (!f || f.size() != FRAME_BYTES) {
         Serial.println("frame load: missing or wrong size");

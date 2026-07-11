@@ -21,8 +21,13 @@ constexpr uint8_t BATTERY_ADC_PIN = 1;   // A0, via /2 divider
 constexpr uint8_t BATTERY_EN_PIN = 6;    // HIGH enables the divider
 constexpr uint8_t EPAPER_EN_PIN = 43;    // panel power enable
 
-// ---- Behavior ------------------------------------------------------------
-constexpr uint64_t SLEEP_SECONDS = 60 * 60; // 1 hour between refreshes
+// ---- Behavior defaults (runtime values live in settings.h / NVS) --------
+constexpr uint32_t DEFAULT_SLEEP_SECONDS = 60 * 60; // 1 hour
+inline const char *DEFAULT_IMAGE_URL =
+    "https://images.weserv.nl/?url=picsum.photos/{width}/{height}"
+    "%3Frandom%3D{seed}&output=jpg";
+inline const char *DEFAULT_DEVICE_NAME = "ee02";
+constexpr uint8_t DEFAULT_ROTATION = 0; // portrait
 
 inline const char *AP_NAME = "EE02-Setup";
 inline const char *TZ_API_URL =

@@ -2,6 +2,7 @@
 #include "config.h"
 #include "display.h"
 #include "power.h"
+#include "settings.h"
 #include "state.h"
 #include <WiFi.h>
 #include <time.h>
@@ -57,7 +58,7 @@ void drawInfoScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     if (held) {
         lines[n++] = "next: held";
     } else {
-        time_t next = time(nullptr) + (time_t)SLEEP_SECONDS;
+        time_t next = time(nullptr) + (time_t)settings.sleepSecs;
         struct tm nextTm;
         localtime_r(&next, &nextTm);
         char hm[8];

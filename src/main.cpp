@@ -8,6 +8,7 @@
 #include "display.h"
 #include "net.h"
 #include "power.h"
+#include "settings.h"
 #include "state.h"
 #include "ui.h"
 
@@ -110,6 +111,7 @@ void setup() {
     Serial.printf("ee02-frame: boot #%u, wake: %s\n", bootCount, wakeReason());
 
     prefs.begin("frame", false);
+    loadSettings();
     infoVisible = prefs.getBool("info", false);
     held = prefs.getBool("held", false);
     // TZ env doesn't survive deep sleep: without this, times rendered on
@@ -194,7 +196,7 @@ void loop() {
     bool fetchDue = false;
     if (!held) {
         time_t lastFetch = (time_t)prefs.getULong("lastEpoch", 0);
-        fetchDue = time(nullptr) - lastFetch >= (time_t)SLEEP_SECONDS;
+        fetchDue = time(nullptr) - lastFetch >= (time_t)settings.sleepSecs;
     }
 
     if (info || pin || newPic || fetchDue) {

@@ -7,6 +7,14 @@ int32_t readBatteryMv();
 // Rough state-of-charge estimate from a Li-ion discharge curve.
 int batteryPercent(int32_t mv);
 
+// LED policy (active-LOW pin): Solid = awake and idle, Heartbeat = busy
+// (fetching / dithering / refreshing the panel — proof it isn't hung),
+// Off = about to sleep. A tiny FreeRTOS task owns the pin; ack blinks
+// (blinkLed) temporarily take it over.
+enum class LedMode : uint8_t { Off, Solid, Heartbeat };
+void startLedTask(); // call once per boot before the first setLed()
+void setLed(LedMode mode);
+
 // LED feedback (active-LOW LED on LED_PIN).
 void blinkLed(int times, int onOffMs = 150);
 

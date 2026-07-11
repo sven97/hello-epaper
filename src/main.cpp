@@ -41,15 +41,18 @@ static int32_t readBatteryWithDelta(int32_t &deltaMv, bool &haveDelta) {
 // retry. interactive=true (button presses, power-on, portal exits): draw
 // the error screen so the person standing there knows what happened.
 static void doFetchCycle(bool interactive) {
+    setLed(LedMode::Heartbeat);
     if (!connectWifi(interactive)) {
         if (interactive) showError("Wi-Fi connection failed");
         else Serial.println("wifi failed — keeping photo, retry next wake");
+        setLed(LedMode::Solid);
         return;
     }
     String err;
     if (!fetchImage(err)) {
         if (interactive) showError(err);
         else Serial.println("fetch failed (" + err + ") — keeping photo");
+        setLed(LedMode::Solid);
         return;
     }
     syncClock();
@@ -57,6 +60,7 @@ static void doFetchCycle(bool interactive) {
     Serial.println("updating panel (takes ~20-30 s)...");
     epaper.update();
     Serial.println("done");
+    setLed(LedMode::Solid);
 }
 
 // KEY1: status page + settings portal. Draw first (from NVS cache, no
@@ -69,7 +73,9 @@ static void doFetchCycle(bool interactive) {
 static bool runStatusMode(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     drawStatusScreen(vbatMv, deltaMv, haveDelta);
     Serial.println("updating panel (takes ~20-30 s)...");
+    setLed(LedMode::Heartbeat);
     epaper.update();
+    setLed(LedMode::Solid);
     Serial.println("done");
     if (!connectWifi()) return false; // provisioning fallback already drew
     if (!startPortal()) return true;
@@ -155,7 +161,8 @@ void setup() {
     pinMode(BTN_NEW_PIC, INPUT); // external pull-ups on board
     pinMode(BTN_INFO, INPUT);    // polled by loop() in dev mode
     pinMode(BTN_PIN, INPUT);
-    digitalWrite(LED_PIN, LOW); // LED on while awake
+    startLedTask();
+    setLed(LedMode::Solid);
 
     int32_t deltaMv;
     bool haveDelta;
@@ -173,7 +180,7 @@ void setup() {
         doFetchCycle(cause != ESP_SLEEP_WAKEUP_TIMER); // power-on / btn-new-pic / timer
     }
 
-    digitalWrite(LED_PIN, HIGH);
+    setLed(LedMode::Off);
     maybeSleep(); // deep sleep — or return, in dev mode, and run loop()
 }
 
@@ -199,9 +206,9 @@ void loop() {
     if (takePortalAction()) {
         applyUtcOffset(prefs.getLong("tzOff", 0));
         applyOrientation();
-        digitalWrite(LED_PIN, LOW);
+        setLed(LedMode::Solid);
         doFetchCycle(true);
-        digitalWrite(LED_PIN, HIGH);
+        setLed(LedMode::Off);
     }
 
     bool info = buttonPressed(BTN_INFO);
@@ -217,7 +224,7 @@ void loop() {
     if (pin) {
         togglePin();
     } else if (info || newPic || fetchDue) {
-        digitalWrite(LED_PIN, LOW);
+        setLed(LedMode::Solid);
         int32_t deltaMv;
         bool haveDelta;
         int32_t vbatMv = readBatteryWithDelta(deltaMv, haveDelta);
@@ -227,7 +234,7 @@ void loop() {
         } else {
             doFetchCycle(newPic); // KEY2 is interactive; fetchDue is not
         }
-        digitalWrite(LED_PIN, HIGH);
+        setLed(LedMode::Off);
     }
 
     delay(50);

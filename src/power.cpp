@@ -4,7 +4,9 @@
 #include "driver/gpio.h"
 #include "soc/usb_serial_jtag_reg.h"
 #include "logic/battery_curve.h"
+#include "logic/quiet_hours.h"
 #include "settings.h"
+#include <time.h>
 
 // A USB *host* (not a charger) sends a Start-of-Frame token every 1 ms,
 // which increments the USB-Serial-JTAG frame counter. Sampling it twice a
@@ -57,8 +59,22 @@ void blinkLed(int times, int onOffMs) {
     }
 }
 
+static int secondsOfLocalDay(time_t now) {
+    struct tm lt;
+    localtime_r(&now, &lt);
+    return lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec;
+}
+
+uint32_t plannedSleepSecs() {
+    time_t now = time(nullptr);
+    if (now <= CLOCK_SANE_EPOCH) return settings.sleepSecs;
+    return quietAdjustedSleep(secondsOfLocalDay(now), settings.sleepSecs,
+                              settings.quietEnabled, settings.quietStartHour,
+                              settings.quietEndHour);
+}
+
 void goToSleep() {
-    uint64_t secs = settings.sleepSecs;
+    uint64_t secs = plannedSleepSecs();
     Serial.printf("sleeping %llu s (buttons also wake)...\n", secs);
     Serial.flush();
     epaper.sleep();                    // panel low-power mode
@@ -74,11 +90,10 @@ void goToSleep() {
     esp_deep_sleep_start();
 }
 
-void quickSleep() {
-    uint64_t secs = settings.sleepSecs;
-    Serial.printf("nothing to do — back to sleep %llu s\n", secs);
+void quickSleep(uint32_t secs) {
+    Serial.printf("nothing to do — back to sleep %u s\n", secs);
     Serial.flush();
-    esp_sleep_enable_timer_wakeup(secs * 1000000ULL);
+    esp_sleep_enable_timer_wakeup((uint64_t)secs * 1000000ULL);
     esp_sleep_enable_ext1_wakeup(BUTTON_WAKE_MASK, ESP_EXT1_WAKEUP_ANY_LOW);
     esp_deep_sleep_start();
 }

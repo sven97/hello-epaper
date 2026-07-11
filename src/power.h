@@ -14,14 +14,19 @@ void blinkLed(int times, int onOffMs = 150);
 // mode (short sleeps so the serial port reappears frequently).
 bool usbHostPresent();
 
+// Seconds the next sleep will actually last: settings.sleepSecs, extended
+// past the quiet-hours window when the wake would land inside it (only
+// when the clock is NTP-sane — never trust a 1970 clock).
+uint32_t plannedSleepSecs();
+
 // Full deep sleep: panel to low power, enable-line GPIOs latched low,
-// timer + any-button wake armed. Never returns.
+// timer + any-button wake armed. Quiet-hours aware. Never returns.
 void goToSleep();
 
 // goToSleep(), unless a USB host is attached (dev mode) — then returns
 // and loop() runs with live button polling and the port always up.
 void maybeSleep();
 
-// Held timer wake: panel was never touched and the GPIO holds from the
-// previous sleep are still latched — just re-arm and go. Never returns.
-void quickSleep();
+// Fast re-arm without touching the panel or GPIO holds (held wakes and
+// timer wakes landing inside the quiet window). Never returns.
+void quickSleep(uint32_t secs);

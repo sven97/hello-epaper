@@ -6,11 +6,13 @@
 
 #include "config.h"
 #include "display.h"
+#include "logic/quiet_hours.h"
 #include "net.h"
 #include "power.h"
 #include "settings.h"
 #include "state.h"
 #include "ui.h"
+#include <time.h>
 
 Preferences prefs; // NVS namespace "frame"
 bool infoVisible = false;
@@ -123,10 +125,22 @@ void setup() {
     uint64_t btnBits = (cause == ESP_SLEEP_WAKEUP_EXT1)
                            ? esp_sleep_get_ext1_wakeup_status() : 0;
 
-    // Held timer wake: skip everything, don't even touch the panel. The
-    // GPIO holds from the previous sleep are still latched, so this must
-    // run before the hold-release below.
-    if (cause == ESP_SLEEP_WAKEUP_TIMER && held) quickSleep(); // no return
+    // Fast paths for timer wakes that shouldn't touch the panel: pinned,
+    // or the wake landed inside the quiet window. GPIO holds from the
+    // previous sleep stay latched, so these must run before hold-release.
+    if (cause == ESP_SLEEP_WAKEUP_TIMER) {
+        if (held) quickSleep(plannedSleepSecs()); // no return
+        time_t now = time(nullptr);
+        if (settings.quietEnabled && now > CLOCK_SANE_EPOCH) {
+            struct tm lt;
+            localtime_r(&now, &lt);
+            int sod = lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec;
+            if (inQuietWindow(sod, settings.quietStartHour,
+                              settings.quietEndHour))
+                quickSleep(secondsUntilQuietEnd(sod, settings.quietStartHour,
+                                                settings.quietEndHour)); // no return
+        }
+    }
 
 
     // Release the pin holds from the previous deep sleep (no-op on first

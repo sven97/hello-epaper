@@ -117,7 +117,8 @@ it first: press any user button and run the upload within the wake window
 (a port-watching loop works well: `until ls /dev/cu.usbmodem* 2>/dev/null;
 do sleep 0.2; done; pio run -t upload`), wait for the scheduled self-wake,
 or hold **BOOT**, tap **RESET**, release BOOT — then flash and press
-RESET after.
+RESET after. While plugged in, the settings portal stays reachable at
+http://<name>.local the whole time — no KEY1 needed.
 
 ## Source layout
 

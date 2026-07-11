@@ -14,6 +14,8 @@ static WebServer server(80);
 static PortalResult result;
 static bool exitRequested;
 static uint32_t lastActivityMs;
+static bool portalRunning;
+static bool portalPersistent;
 
 String portalUrl() { return "http://" + settings.name + ".local"; }
 
@@ -200,6 +202,7 @@ static void handleForgetWifi() {
 }
 
 bool startPortal() {
+    if (portalRunning) return true;
     if (!MDNS.begin(settings.name.c_str()))
         Serial.println("portal: mDNS failed (IP still works)");
     server.on("/", HTTP_GET, handleRoot);
@@ -211,6 +214,7 @@ bool startPortal() {
     server.begin();
     Serial.printf("portal: %s (http://%s)\n", portalUrl().c_str(),
                   WiFi.localIP().toString().c_str());
+    portalRunning = true;
     return true;
 }
 
@@ -228,7 +232,24 @@ PortalResult runPortal(uint32_t inactivityTimeoutMs) {
         delay(10);
     }
     delay(200); // let the last HTTP response flush
-    server.stop();
-    MDNS.end();
+    exitRequested = false; // consumed by this session — takePortalAction()
+                           // must not re-fire on it after runPortal returns
+    if (!portalPersistent) {
+        server.stop();
+        MDNS.end();
+        portalRunning = false;
+    }
     return result;
+}
+
+void setPortalPersistent(bool on) { portalPersistent = on; }
+
+void servicePortal() {
+    if (portalRunning) server.handleClient();
+}
+
+bool takePortalAction() {
+    if (!exitRequested) return false;
+    exitRequested = false;
+    return true;
 }

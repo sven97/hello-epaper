@@ -186,6 +186,24 @@ void loop() {
         goToSleep(); // never returns
     }
 
+    // Dev mode: keep the settings portal up permanently — the device
+    // never sleeps while a USB host is attached, so it costs nothing.
+    static bool devPortalStarted = false;
+    if (!devPortalStarted && WiFi.status() == WL_CONNECTED) {
+        setPortalPersistent(true);
+        devPortalStarted = startPortal();
+        if (devPortalStarted)
+            Serial.println("dev mode: portal up at " + portalUrl());
+    }
+    servicePortal();
+    if (takePortalAction()) {
+        applyUtcOffset(prefs.getLong("tzOff", 0));
+        applyOrientation();
+        digitalWrite(LED_PIN, LOW);
+        doFetchCycle(true);
+        digitalWrite(LED_PIN, HIGH);
+    }
+
     bool info = buttonPressed(BTN_INFO);
     bool pin = !info && buttonPressed(BTN_PIN);
     bool newPic = !info && !pin && buttonPressed(BTN_NEW_PIC);

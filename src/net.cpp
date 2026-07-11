@@ -33,7 +33,7 @@ static void showProvisioningScreen() {
     epaper.drawString("2. Open http://192.168.4.1 in a browser", 20, 300, 4);
     epaper.drawString("3. Pick your 2.4 GHz network, enter its password", 20, 360, 4);
     epaper.drawString("The board remembers it for future boots.", 20, 480, 4);
-    epaper.drawString("Hold button KEY2 at power-on to forget it.", 20, 540, 4);
+    epaper.drawString("Change or forget it later: press KEY1, open Settings.", 20, 540, 4);
     epaper.update();
 }
 

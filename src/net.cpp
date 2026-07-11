@@ -73,6 +73,7 @@ bool connectWifi() {
         Serial.printf("connected to %s, IP %s, RSSI %d dBm\n",
                       WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(),
                       WiFi.RSSI());
+        prefs.putString("lastIp", WiFi.localIP().toString());
     } else {
         Serial.println("provisioning timed out");
     }

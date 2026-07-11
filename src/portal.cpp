@@ -70,13 +70,25 @@ static String rotOptions() {
     return out;
 }
 
+// Escape for HTML attribute/text context. Needed for the image URL: it is
+// only validated for scheme + length, so a '"' would otherwise break out of
+// the value="..." attribute and inject markup into every future render.
+static String htmlEscape(const String &s) {
+    String out = s;
+    out.replace("&", "&amp;");
+    out.replace("\"", "&quot;");
+    out.replace("<", "&lt;");
+    out.replace(">", "&gt;");
+    return out;
+}
+
 static String buildPage(const String &error) {
     String page = FPSTR(PORTAL_HTML);
     page.replace("%ERROR%",
                  error.isEmpty() ? "" : "<div class=\"msg\">" + error + "</div>");
     page.replace("%NAME%", settings.name);
     page.replace("%SLEEP_OPTS%", sleepOptions(settings.sleepSecs));
-    page.replace("%URL%", settings.imageUrl);
+    page.replace("%URL%", htmlEscape(settings.imageUrl));
     page.replace("%PAUSED%", held ? "checked" : "");
     page.replace("%QUIET_EN%", settings.quietEnabled ? "checked" : "");
     page.replace("%QS_OPTS%",

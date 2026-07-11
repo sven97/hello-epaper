@@ -57,7 +57,7 @@ void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     String wifiDesc = prefs.getString("wifiDesc", "?");
     String lastIp = prefs.getString("lastIp", "");
 
-    String lines[6];
+    String lines[5];
     int n = 0;
     lines[n++] = settings.name + "  —  wake: " + String(wakeReason());
 
@@ -108,18 +108,24 @@ void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     for (int i = 0; i < n; i++, y += lineH)
         epaper.drawString(lines[i], cx, y, 4);
 
-    // Portal URL at base text size (a full URL + IP overflows size 2),
-    // then the QR code below it.
+    // Portal URL at base text size (a full URL + IP overflows size 2).
+    String url = portalUrl();
     epaper.setTextSize(1);
-    epaper.drawString("settings: " + portalUrl() +
+    epaper.drawString("settings: " + url +
                           (lastIp.isEmpty() ? "" : "  (" + lastIp + ")"),
                       cx, y, 4);
-    drawQr(portalUrl(), cx, y + 220, 8); // ~33*8=264 px + quiet zone
-    epaper.setTextSize(2);
+
+    // Center the QR in the free band between the URL line and the legend,
+    // scaled so its full extent (33 modules + 4-module quiet zone each
+    // side) fits the band in either rotation.
+    const int legendTop = epaper.height() - 200;
+    const int bandTop = y + 40;
+    const int bandBottom = legendTop - 30;
+    const int qrCy = (bandTop + bandBottom) / 2;
+    const int scale = min(8, (bandBottom - bandTop) / (33 + 8));
+    drawQr(url, cx, qrCy, scale);
 
     // Button legend with live state — the frame documents itself.
-    epaper.setTextSize(1);
-    const int legendTop = epaper.height() - 200;
     epaper.drawString("KEY1: back to photo (settings portal is on while "
                       "this page shows)", cx, legendTop, 4);
     epaper.drawString("KEY2: new picture now", cx, legendTop + 55, 4);

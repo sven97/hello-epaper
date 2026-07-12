@@ -195,11 +195,10 @@ void loop() {
 
     // Dev mode: keep the settings portal up permanently — the device
     // never sleeps while a USB host is attached, so it costs nothing.
-    static bool devPortalStarted = false;
-    if (!devPortalStarted && WiFi.status() == WL_CONNECTED) {
+    // connectWifi() stops it around provisioning; restart when Wi-Fi is back.
+    if (!portalIsRunning() && WiFi.status() == WL_CONNECTED) {
         setPortalPersistent(true);
-        devPortalStarted = startPortal();
-        if (devPortalStarted)
+        if (startPortal())
             Serial.println("dev mode: portal up at " + portalUrl());
     }
     servicePortal();

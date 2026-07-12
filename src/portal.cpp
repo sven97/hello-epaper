@@ -205,12 +205,16 @@ bool startPortal() {
     if (portalRunning) return true;
     if (!MDNS.begin(settings.name.c_str()))
         Serial.println("portal: mDNS failed (IP still works)");
-    server.on("/", HTTP_GET, handleRoot);
-    server.on("/save", HTTP_POST, handleSave);
-    server.on("/action/newpic", HTTP_POST, handleNewPic);
-    server.on("/action/forgetwifi", HTTP_POST, handleForgetWifi);
-    server.onNotFound(
-        []() { server.send(404, "text/plain", "not found"); });
+    static bool routesRegistered = false;
+    if (!routesRegistered) {
+        routesRegistered = true;
+        server.on("/", HTTP_GET, handleRoot);
+        server.on("/save", HTTP_POST, handleSave);
+        server.on("/action/newpic", HTTP_POST, handleNewPic);
+        server.on("/action/forgetwifi", HTTP_POST, handleForgetWifi);
+        server.onNotFound(
+            []() { server.send(404, "text/plain", "not found"); });
+    }
     server.begin();
     Serial.printf("portal: %s (http://%s)\n", portalUrl().c_str(),
                   WiFi.localIP().toString().c_str());
@@ -234,11 +238,7 @@ PortalResult runPortal(uint32_t inactivityTimeoutMs) {
     delay(200); // let the last HTTP response flush
     exitRequested = false; // consumed by this session — takePortalAction()
                            // must not re-fire on it after runPortal returns
-    if (!portalPersistent) {
-        server.stop();
-        MDNS.end();
-        portalRunning = false;
-    }
+    if (!portalPersistent) stopPortal();
     return result;
 }
 
@@ -253,3 +253,12 @@ bool takePortalAction() {
     exitRequested = false;
     return true;
 }
+
+void stopPortal() {
+    if (!portalRunning) return;
+    server.stop();
+    MDNS.end();
+    portalRunning = false;
+}
+
+bool portalIsRunning() { return portalRunning; }

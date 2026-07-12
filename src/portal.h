@@ -19,3 +19,10 @@ String portalUrl();                                   // "http://<name>.local"
 void setPortalPersistent(bool on);
 void servicePortal();
 bool takePortalAction();
+
+// Stop the web server + mDNS (no-op when not running). connectWifi()
+// calls this before any connect that may open the WiFiManager captive
+// portal — both servers want port 80. The dev-mode loop restarts the
+// portal (fresh mDNS name included) once Wi-Fi is back.
+void stopPortal();
+bool portalIsRunning();

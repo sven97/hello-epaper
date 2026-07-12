@@ -78,7 +78,8 @@ void startLedTask() { xTaskCreate(ledTask, "led", 2048, nullptr, 1, nullptr); }
 void setLed(LedMode m) {
     ledMode = m;
     // Off must take effect synchronously: deep sleep may start before the
-    // task's next wakeup, and it would leave the pin held low.
+    // task's next wakeup, and it would leave the pin driven low until the
+    // pad powers down.
     if (m == LedMode::Off) digitalWrite(LED_PIN, HIGH);
 }
 

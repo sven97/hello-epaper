@@ -1,6 +1,7 @@
 #include "net.h"
 #include "config.h"
 #include "display.h"
+#include "portal.h"
 #include "state.h"
 #include "settings.h"
 #include "logic/url_template.h"
@@ -74,6 +75,9 @@ static void configModeCallback(WiFiManager *wm) {
 
 bool connectWifi(bool allowPortal) {
     provisioningScreenShown = false; // each attempt may open a fresh portal
+    // Both this firmware's settings portal and WiFiManager's captive
+    // portal bind port 80 — free ours in case provisioning must open.
+    if (allowPortal) stopPortal();
     WiFiManager wm;
     wm.setAPCallback(configModeCallback);
     wm.setConfigPortalTimeout(300);

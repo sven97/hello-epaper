@@ -70,13 +70,15 @@ void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
 
     if (held) {
         lines[n++] = "next photo: pinned (KEY3 resumes)";
-    } else {
+    } else if (time(nullptr) > CLOCK_SANE_EPOCH) {
         time_t next = time(nullptr) + (time_t)plannedSleepSecs();
         struct tm nextTm;
         localtime_r(&next, &nextTm);
         char hm[8];
         strftime(hm, sizeof(hm), "%H:%M", &nextTm);
         lines[n++] = "next photo: " + String(hm);
+    } else {
+        lines[n++] = "next photo: --";
     }
 
     lines[n++] = "Wi-Fi: " + wifiDesc;

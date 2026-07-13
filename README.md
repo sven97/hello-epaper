@@ -14,7 +14,11 @@ phone talking directly to the device over your own Wi-Fi. Nothing else has
 to run, ever.
 
 <!-- PHOTO: frame on a wall showing a photo -->
-<!-- PHOTO: status page with QR code -->
+
+<img src="docs/img/status-page-mockup.png" alt="Status page: wake reason, last/next photo, Wi-Fi, battery, a QR code linking to the settings portal, and a button legend" width="360">
+
+*Mockup rendered from the actual drawing code — not a photo of the real
+panel, which is glossier and paper-white. Real photo pending.*
 
 On a schedule you choose it wakes from deep sleep, fetches a photo from a
 URL you choose, dithers it to the panel's six colors, refreshes, and goes

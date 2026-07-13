@@ -121,7 +121,7 @@ void setup() {
     delay(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED ? 2000
                                                                      : 200);
     bootCount++;
-    Serial.printf("ee02-frame: boot #%u, wake: %s\n", bootCount, wakeReason());
+    Serial.printf("openee02: boot #%u, wake: %s\n", bootCount, wakeReason());
 
     prefs.begin("frame", false);
     loadSettings();

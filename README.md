@@ -1,10 +1,17 @@
-# ee02-frame
+# openee02
 
 [![ci](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 
-Firmware for the **Seeed Studio XIAO ePaper Display Board EE02** (XIAO
-ESP32-S3 Plus) driving a **13.3″ Spectra 6 e-ink panel** (1200×1600, six
-colors) as a battery-powered photo frame.
+Standalone, zero-cloud firmware for the **Seeed Studio XIAO ePaper Display
+Board EE02** (XIAO ESP32-S3 Plus) driving a **13.3″ Spectra 6 e-ink panel**
+(1200×1600, six colors) as a battery-powered photo frame.
+
+Seeed ships the EE02 pre-flashed with SenseCraft HMI, a cloud-based no-code
+dashboard tool that requires an account and an internet connection to
+reconfigure. This firmware needs neither: every setting — refresh interval,
+image source, quiet hours, timezone, orientation — is configured from your
+phone talking directly to the device over your own Wi-Fi. Nothing else has
+to run, ever.
 
 <!-- PHOTO: frame on a wall showing a photo -->
 <!-- PHOTO: status page with QR code -->

@@ -1,14 +1,17 @@
 #pragma once
 #include <Arduino.h>
 
-// Connect with saved credentials, or open the captive portal (AP_NAME,
-// portal at 192.168.4.1) on first boot / after forget. Blocks until
-// connected or the 5-minute portal timeout.
-bool connectWifi();
+// Connect with saved credentials. With allowPortal (the default), first
+// boot / stale credentials open the captive portal (AP_NAME) and the
+// panel shows instructions. With allowPortal=false — unattended timer
+// wakes — never touch the panel or open an AP: fail fast and return
+// false so the caller can keep the current photo and retry next wake.
+bool connectWifi(bool allowPortal = true);
 
-// Fetch a random photo (weserv baseline re-encode of picsum) into the
-// sprite, dithered. Returns false after drawing an error screen.
-bool fetchImage();
+// Fetch a photo into the sprite, dithered. On failure fills err with a
+// short user-facing message and draws nothing — the caller decides
+// whether anyone is watching.
+bool fetchImage(String &err);
 
 // Detect the UTC offset from the network's public IP, then NTP-sync.
 // Returns false if NTP never synced (offset may still be cached-stale).

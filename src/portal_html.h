@@ -20,6 +20,7 @@ button.primary{background:#2563eb;color:#fff;border-color:#2563eb}
 .danger{border-color:#c00}
 </style></head><body>
 <h1>%NAME% — settings</h1>
+<p class="note" style="margin-top:-.6rem">%STATUS%</p>
 %ERROR%
 <form method="POST" action="/save">
 <fieldset><legend>Pictures</legend>
@@ -55,5 +56,6 @@ inline const char PORTAL_DONE_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EE02 Frame</title>
-<style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:2rem auto;padding:0 1rem}</style>
-</head><body><h1>%TITLE%</h1><p>%BODY%</p></body></html>)HTML";
+<style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:2rem auto;padding:0 1rem;color:#222}
+.note{color:#666;font-size:.85rem}</style>
+</head><body><h1>%TITLE%</h1><div>%BODY%</div></body></html>)HTML";

@@ -1,6 +1,7 @@
 #include "net.h"
 #include "config.h"
 #include "display.h"
+#include "portal.h"
 #include "state.h"
 #include "settings.h"
 #include "logic/url_template.h"
@@ -20,20 +21,34 @@ static String imageUrl() {
     return String(u.c_str());
 }
 
-// Layout note: all y-coordinates stay under 1200 so the screen renders
-// in both portrait (1600 tall) and landscape (1200 tall).
+// First-boot / stale-credentials instructions. Everything centered and
+// sized from the panel so it renders in every rotation; all y <= 1150
+// fits the 1200 px landscape height. Phones join the open hotspot from
+// the first QR; the captive-portal page usually pops up by itself.
 static void showProvisioningScreen() {
+    const int cx = epaper.width() / 2;
     epaper.fillScreen(TFT_WHITE);
+    epaper.setTextDatum(MC_DATUM);
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
-    epaper.drawString("Wi-Fi setup", 20, 40, 4);
-    epaper.drawString("1. On your phone, join the Wi-Fi network:", 20, 160, 4);
-    epaper.setTextColor(TFT_BLUE, TFT_WHITE);
-    epaper.drawString(AP_NAME, 60, 220, 4);
-    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
-    epaper.drawString("2. Open http://192.168.4.1 in a browser", 20, 300, 4);
-    epaper.drawString("3. Pick your 2.4 GHz network, enter its password", 20, 360, 4);
-    epaper.drawString("The board remembers it for future boots.", 20, 480, 4);
-    epaper.drawString("Change or forget it later: press KEY1, open Settings.", 20, 540, 4);
+    epaper.setTextSize(2);
+    epaper.drawString("Wi-Fi setup", cx, 90, 4);
+    epaper.drawString("1. Scan to join the frame's hotspot:", cx, 210, 4);
+    drawQrCode("WIFI:S:" + String(AP_NAME) + ";;", cx, 400, 4);
+    epaper.setTextSize(1);
+    epaper.drawString("(or join \"" + String(AP_NAME) + "\" manually)",
+                      cx, 545, 4);
+    epaper.setTextSize(2);
+    epaper.drawString("2. A setup page opens by itself.", cx, 660, 4);
+    epaper.setTextSize(1);
+    epaper.drawString("If it doesn't, scan this or visit http://192.168.4.1:",
+                      cx, 725, 4);
+    drawQrCode("http://192.168.4.1", cx, 880, 4);
+    epaper.setTextSize(2);
+    epaper.drawString("3. Pick your 2.4 GHz network.", cx, 1060, 4);
+    epaper.setTextSize(1);
+    epaper.drawString("Change or forget it later: press KEY1, open Settings.",
+                      cx, 1140, 4);
+    epaper.setTextDatum(TL_DATUM);
     epaper.update();
 }
 
@@ -58,15 +73,19 @@ static void configModeCallback(WiFiManager *wm) {
     showProvisioningScreenOnce();
 }
 
-bool connectWifi() {
+bool connectWifi(bool allowPortal) {
     provisioningScreenShown = false; // each attempt may open a fresh portal
+    // Both this firmware's settings portal and WiFiManager's captive
+    // portal bind port 80 — free ours in case provisioning must open.
+    if (allowPortal) stopPortal();
     WiFiManager wm;
     wm.setAPCallback(configModeCallback);
     wm.setConfigPortalTimeout(300);
+    wm.setEnableConfigPortal(allowPortal);
     // No saved credentials means the portal WILL open: draw the instructions
     // now, before autoConnect(), so the portal web server isn't blocked
     // behind the ~30 s panel draw when the user tries to reach it.
-    if (!wm.getWiFiIsSaved()) showProvisioningScreenOnce();
+    if (allowPortal && !wm.getWiFiIsSaved()) showProvisioningScreenOnce();
     Serial.println("connecting (saved credentials, or captive portal)...");
     bool ok = wm.autoConnect(AP_NAME);
     if (ok) {
@@ -75,15 +94,15 @@ bool connectWifi() {
                       WiFi.RSSI());
         prefs.putString("lastIp", WiFi.localIP().toString());
     } else {
-        Serial.println("provisioning timed out");
+        Serial.println("wifi connect failed");
     }
     return ok;
 }
 
 // Fetch the image into the framebuffer (no update() yet — the caller
-// decides when to refresh). Returns false after drawing an error screen
-// (already updated) on failure.
-bool fetchImage() {
+// decides when to refresh). On failure fills err with a short
+// user-facing message and draws nothing.
+bool fetchImage(String &err) {
     WiFiClientSecure client;
     client.setInsecure(); // learning repo: skip cert validation
     HTTPClient http;
@@ -95,19 +114,19 @@ bool fetchImage() {
     int code = http.GET();
     if (code != HTTP_CODE_OK) {
         http.end();
-        showError("HTTP " + String(code) + " from image server");
+        err = "image server said HTTP " + String(code);
         return false;
     }
     int len = http.getSize();
     if (len <= 0) {
         http.end();
-        showError("server sent no Content-Length");
+        err = "image server sent no size";
         return false;
     }
     uint8_t *buf = (uint8_t *)ps_malloc(len);
     if (!buf) {
         http.end();
-        showError("PSRAM alloc failed");
+        err = "out of memory for the image";
         return false;
     }
     WiFiClient *stream = http.getStreamPtr();
@@ -125,14 +144,14 @@ bool fetchImage() {
     http.end();
     if (got < (size_t)len) {
         free(buf);
-        showError("download incomplete");
+        err = "image download was cut off";
         return false;
     }
     epaper.fillScreen(TFT_WHITE);
     bool rendered = renderJpeg(buf, got);
     free(buf);
     if (!rendered) {
-        showError("jpeg decode failed");
+        err = "that URL is not a baseline JPEG";
         return false;
     }
     return true;

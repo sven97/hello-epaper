@@ -3,10 +3,26 @@
 #include "settings.h"
 #include "state.h"
 #include <JPEGDecoder.h>
+#include <qrcode.h>
 
 EPaper epaper;
 
 void applyOrientation() { epaper.setRotation(settings.rotation); }
+
+void drawQrCode(const String &text, int cx, int cy, int scale) {
+    QRCode qr;
+    uint8_t data[qrcode_getBufferSize(4)];
+    if (qrcode_initText(&qr, data, 4, ECC_LOW, text.c_str()) != 0) return;
+    const int px = qr.size * scale;
+    const int x0 = cx - px / 2, y0 = cy - px / 2;
+    epaper.fillRect(x0 - 4 * scale, y0 - 4 * scale, px + 8 * scale,
+                    px + 8 * scale, TFT_WHITE);
+    for (int y = 0; y < qr.size; y++)
+        for (int x = 0; x < qr.size; x++)
+            if (qrcode_getModule(&qr, x, y))
+                epaper.fillRect(x0 + x * scale, y0 + y * scale, scale, scale,
+                                TFT_BLACK);
+}
 
 // Spectra 6 palette: panel nibble index (drawPixel stores it directly at
 // 4 bpp) + sRGB approximation used as the dithering target.
@@ -112,11 +128,20 @@ bool renderJpeg(uint8_t *buf, size_t len) {
     return ok;
 }
 
+// Full-panel error screen (calls update()). Only drawn when someone is
+// watching (button-initiated actions) — unattended wakes keep the photo.
 void showError(const String &msg) {
+    const int cx = epaper.width() / 2, cy = epaper.height() / 2;
     epaper.fillScreen(TFT_WHITE);
+    epaper.setTextDatum(MC_DATUM);
+    epaper.setTextSize(2);
     epaper.setTextColor(TFT_RED, TFT_WHITE);
-    epaper.drawString("ERROR", 20, 40, 4);
+    epaper.drawString("Something went wrong", cx, cy - 100, 4);
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
-    epaper.drawString(msg, 20, 120, 4);
+    epaper.drawString(msg, cx, cy, 4);
+    epaper.setTextSize(1);
+    epaper.drawString("Check your Wi-Fi, then press KEY2 to try again.",
+                      cx, cy + 90, 4);
+    epaper.setTextDatum(TL_DATUM);
     epaper.update();
 }

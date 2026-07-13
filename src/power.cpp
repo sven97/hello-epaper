@@ -50,13 +50,51 @@ int32_t readBatteryMv() {
 // percent high while charging and low under load.
 int batteryPercent(int32_t mv) { return batteryPercentFromMv((int)mv); }
 
+static volatile LedMode ledMode = LedMode::Off;
+
+static void ledTask(void *) {
+    for (;;) {
+        switch (ledMode) {
+            case LedMode::Off:
+                digitalWrite(LED_PIN, HIGH);
+                vTaskDelay(pdMS_TO_TICKS(100));
+                break;
+            case LedMode::Solid:
+                digitalWrite(LED_PIN, LOW);
+                vTaskDelay(pdMS_TO_TICKS(100));
+                break;
+            case LedMode::Heartbeat:
+                digitalWrite(LED_PIN, LOW);
+                vTaskDelay(pdMS_TO_TICKS(120));
+                digitalWrite(LED_PIN, HIGH);
+                vTaskDelay(pdMS_TO_TICKS(880));
+                break;
+        }
+    }
+}
+
+void startLedTask() { xTaskCreate(ledTask, "led", 2048, nullptr, 1, nullptr); }
+
+void setLed(LedMode m) {
+    ledMode = m;
+    // Off must take effect synchronously: deep sleep may start before the
+    // task's next wakeup, and it would leave the pin driven low until the
+    // pad powers down.
+    if (m == LedMode::Off) digitalWrite(LED_PIN, HIGH);
+}
+
 void blinkLed(int times, int onOffMs) {
+    LedMode prev = ledMode;
+    ledMode = LedMode::Off;
+    delay(120); // parks Off/Solid (<=100 ms holds). Contract: never call
+                // blinkLed while Heartbeat is active (880 ms holds).
     for (int i = 0; i < times; i++) {
         digitalWrite(LED_PIN, LOW);
         delay(onOffMs);
         digitalWrite(LED_PIN, HIGH);
         delay(onOffMs);
     }
+    ledMode = prev;
 }
 
 static int secondsOfLocalDay(time_t now) {

@@ -6,7 +6,6 @@
 #include "settings.h"
 #include "state.h"
 #include <WiFi.h>
-#include <qrcode.h>
 #include <time.h>
 
 const char *wakeReason() {
@@ -23,6 +22,20 @@ const char *wakeReason() {
     }
 }
 
+const char *wakeReasonHuman() {
+    switch (esp_sleep_get_wakeup_cause()) {
+        case ESP_SLEEP_WAKEUP_TIMER: return "scheduled refresh";
+        case ESP_SLEEP_WAKEUP_EXT1: {
+            uint64_t bits = esp_sleep_get_ext1_wakeup_status();
+            if (bits & (1ULL << BTN_INFO))    return "KEY1 (settings)";
+            if (bits & (1ULL << BTN_NEW_PIC)) return "KEY2 (new picture)";
+            if (bits & (1ULL << BTN_PIN))     return "KEY3 (pin)";
+            return "button";
+        }
+        default: return "power on";
+    }
+}
+
 void recordFetchMetadata() {
     // Don't stamp a never-synced clock as the fetch time — keep the
     // previous (accurate) epoch instead and let the page show that.
@@ -33,24 +46,6 @@ void recordFetchMetadata() {
                     WiFi.SSID() + " " + String(WiFi.RSSI()) + "dBm");
 }
 
-// QR code for the portal URL. Version 4 (33x33 modules) fits
-// "http://<24-char-name>.local" at ECC_LOW with room to spare.
-static void drawQr(const String &text, int cx, int cy, int scale) {
-    QRCode qr;
-    uint8_t data[qrcode_getBufferSize(4)];
-    if (qrcode_initText(&qr, data, 4, ECC_LOW, text.c_str()) != 0) return;
-    const int px = qr.size * scale;
-    const int x0 = cx - px / 2, y0 = cy - px / 2;
-    // Quiet zone: 4 modules of white on every side.
-    epaper.fillRect(x0 - 4 * scale, y0 - 4 * scale, px + 8 * scale,
-                    px + 8 * scale, TFT_WHITE);
-    for (int y = 0; y < qr.size; y++)
-        for (int x = 0; x < qr.size; x++)
-            if (qrcode_getModule(&qr, x, y))
-                epaper.fillRect(x0 + x * scale, y0 + y * scale, scale, scale,
-                                TFT_BLACK);
-}
-
 void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     // Metadata comes from recordFetchMetadata(); this page only reads it.
     time_t lastEpoch = (time_t)prefs.getULong("lastEpoch", 0);
@@ -59,7 +54,7 @@ void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
 
     String lines[5];
     int n = 0;
-    lines[n++] = settings.name + "  —  wake: " + String(wakeReason());
+    lines[n++] = settings.name + "  —  woke by " + wakeReasonHuman();
 
     if (lastEpoch > CLOCK_SANE_EPOCH) {
         struct tm lastTm;
@@ -67,33 +62,30 @@ void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
         char dow[16], hm[8];
         strftime(dow, sizeof(dow), "%a %b", &lastTm);
         strftime(hm, sizeof(hm), "%H:%M", &lastTm);
-        lines[n++] = "last: " + String(dow) + " " + String(lastTm.tm_mday) +
-                     " " + String(hm);
+        lines[n++] = "last photo: " + String(dow) + " " +
+                     String(lastTm.tm_mday) + " " + String(hm);
     } else {
-        lines[n++] = "last: --";
+        lines[n++] = "last photo: --";
     }
 
     if (held) {
-        lines[n++] = "next: pinned";
-    } else {
+        lines[n++] = "next photo: pinned (KEY3 resumes)";
+    } else if (time(nullptr) > CLOCK_SANE_EPOCH) {
         time_t next = time(nullptr) + (time_t)plannedSleepSecs();
         struct tm nextTm;
         localtime_r(&next, &nextTm);
         char hm[8];
         strftime(hm, sizeof(hm), "%H:%M", &nextTm);
-        lines[n++] = "next: " + String(hm);
+        lines[n++] = "next photo: " + String(hm);
+    } else {
+        lines[n++] = "next photo: --";
     }
 
-    lines[n++] = "wifi: " + wifiDesc;
+    lines[n++] = "Wi-Fi: " + wifiDesc;
 
-    String batt = "batt: " + String(batteryPercent(vbatMv)) + "% (" +
-                  String(vbatMv / 1000.0f, 2) + "V";
-    if (haveDelta) {
-        batt += ", ";
-        if (deltaMv >= 0) batt += "+";
-        batt += String(deltaMv) + "mV";
-        if (deltaMv >= 20) batt += ", chg";
-    }
+    String batt = "battery: " + String(batteryPercent(vbatMv)) + "% (" +
+                  String(vbatMv / 1000.0f, 2) + " V";
+    if (haveDelta && deltaMv >= 20) batt += ", charging";
     batt += ")";
     lines[n++] = batt;
 
@@ -108,29 +100,26 @@ void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     for (int i = 0; i < n; i++, y += lineH)
         epaper.drawString(lines[i], cx, y, 4);
 
-    // Portal URL at base text size (a full URL + IP overflows size 2).
+    // Caption + URL directly above the QR so the three read as one unit.
     String url = portalUrl();
+    epaper.drawString("Scan to open settings", cx, y, 4); // still size 2
     epaper.setTextSize(1);
-    epaper.drawString("settings: " + url +
-                          (lastIp.isEmpty() ? "" : "  (" + lastIp + ")"),
-                      cx, y, 4);
+    epaper.drawString(url + (lastIp.isEmpty() ? "" : "   (" + lastIp + ")"),
+                      cx, y + 55, 4);
 
-    // Center the QR in the free band between the URL line and the legend,
-    // scaled so its full extent (33 modules + 4-module quiet zone each
-    // side) fits the band in either rotation.
+    // Center the QR in the free band below the URL line, scaled so its
+    // full extent (33 modules + 4-module quiet zone each side) fits.
     const int legendTop = epaper.height() - 200;
-    const int bandTop = y + 40;
+    const int bandTop = y + 85;
     const int bandBottom = legendTop - 30;
     const int qrCy = (bandTop + bandBottom) / 2;
     const int scale = min(8, (bandBottom - bandTop) / (33 + 8));
-    drawQr(url, cx, qrCy, scale);
+    drawQrCode(url, cx, qrCy, scale);
 
-    // Button legend with live state — the frame documents itself.
-    epaper.drawString("KEY1: back to photo (settings portal is on while "
-                      "this page shows)", cx, legendTop, 4);
-    epaper.drawString("KEY2: new picture now", cx, legendTop + 55, 4);
-    epaper.drawString(held ? "KEY3: unpin — currently pinned"
-                           : "KEY3: pin current picture",
+    epaper.drawString("KEY1: back to photo — closes settings", cx, legendTop, 4);
+    epaper.drawString("KEY2: new picture", cx, legendTop + 55, 4);
+    epaper.drawString(held ? "KEY3: unpin — refreshes resume"
+                           : "KEY3: pin this picture",
                       cx, legendTop + 110, 4);
     epaper.setTextDatum(TL_DATUM);
 }

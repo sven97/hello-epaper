@@ -35,17 +35,32 @@ static int32_t readBatteryWithDelta(int32_t &deltaMv, bool &haveDelta) {
     return vbatMv;
 }
 
-// Fetch a new photo, dither it, and show it full-bleed.
-static void doFetchCycle() {
-    if (!connectWifi()) {
-        showError("wifi setup failed or timed out");
-    } else if (fetchImage()) {
-        syncClock();
-        recordFetchMetadata();
-        Serial.println("updating panel (takes ~20-30 s)...");
-        epaper.update();
-        Serial.println("done");
+// Fetch a new photo, dither it, persist metadata, and show it full-bleed.
+// interactive=false (scheduled timer wakes): nobody is watching — on any
+// failure keep the current photo untouched, log, and let the next wake
+// retry. interactive=true (button presses, power-on, portal exits): draw
+// the error screen so the person standing there knows what happened.
+static void doFetchCycle(bool interactive) {
+    setLed(LedMode::Heartbeat);
+    if (!connectWifi(interactive)) {
+        if (interactive) showError("Wi-Fi connection failed");
+        else Serial.println("wifi failed — keeping photo, retry next wake");
+        setLed(LedMode::Solid);
+        return;
     }
+    String err;
+    if (!fetchImage(err)) {
+        if (interactive) showError(err);
+        else Serial.println("fetch failed (" + err + ") — keeping photo");
+        setLed(LedMode::Solid);
+        return;
+    }
+    syncClock();
+    recordFetchMetadata();
+    Serial.println("updating panel (takes ~20-30 s)...");
+    epaper.update();
+    Serial.println("done");
+    setLed(LedMode::Solid);
 }
 
 // KEY1: status page + settings portal. Draw first (from NVS cache, no
@@ -58,7 +73,9 @@ static void doFetchCycle() {
 static bool runStatusMode(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     drawStatusScreen(vbatMv, deltaMv, haveDelta);
     Serial.println("updating panel (takes ~20-30 s)...");
+    setLed(LedMode::Heartbeat);
     epaper.update();
+    setLed(LedMode::Solid);
     Serial.println("done");
     if (!connectWifi()) return false; // provisioning fallback already drew
     if (!startPortal()) return true;
@@ -144,7 +161,8 @@ void setup() {
     pinMode(BTN_NEW_PIC, INPUT); // external pull-ups on board
     pinMode(BTN_INFO, INPUT);    // polled by loop() in dev mode
     pinMode(BTN_PIN, INPUT);
-    digitalWrite(LED_PIN, LOW); // LED on while awake
+    startLedTask();
+    setLed(LedMode::Solid);
 
     int32_t deltaMv;
     bool haveDelta;
@@ -156,13 +174,13 @@ void setup() {
     if (btnBits & (1ULL << BTN_PIN)) {
         togglePin(); // photo stays up; no fetch, no panel touch
     } else if (btnBits & (1ULL << BTN_INFO)) {
-        if (runStatusMode(vbatMv, deltaMv, haveDelta)) doFetchCycle();
-        else showError("wifi setup failed or timed out");
+        if (runStatusMode(vbatMv, deltaMv, haveDelta)) doFetchCycle(true);
+        else showError("Wi-Fi connection failed");
     } else {
-        doFetchCycle(); // power-on / btn-new-pic / timer
+        doFetchCycle(cause != ESP_SLEEP_WAKEUP_TIMER); // power-on / btn-new-pic / timer
     }
 
-    digitalWrite(LED_PIN, HIGH);
+    setLed(LedMode::Off);
     maybeSleep(); // deep sleep — or return, in dev mode, and run loop()
 }
 
@@ -173,6 +191,23 @@ void loop() {
     if (!usbHostPresent()) {
         Serial.println("usb host gone — leaving dev mode");
         goToSleep(); // never returns
+    }
+
+    // Dev mode: keep the settings portal up permanently — the device
+    // never sleeps while a USB host is attached, so it costs nothing.
+    // connectWifi() stops it around provisioning; restart when Wi-Fi is back.
+    if (!portalIsRunning() && WiFi.status() == WL_CONNECTED) {
+        setPortalPersistent(true);
+        if (startPortal())
+            Serial.println("dev mode: portal up at " + portalUrl());
+    }
+    servicePortal();
+    if (takePortalAction()) {
+        applyUtcOffset(prefs.getLong("tzOff", 0));
+        applyOrientation();
+        setLed(LedMode::Solid);
+        doFetchCycle(true);
+        setLed(LedMode::Off);
     }
 
     bool info = buttonPressed(BTN_INFO);
@@ -188,17 +223,17 @@ void loop() {
     if (pin) {
         togglePin();
     } else if (info || newPic || fetchDue) {
-        digitalWrite(LED_PIN, LOW);
+        setLed(LedMode::Solid);
         int32_t deltaMv;
         bool haveDelta;
         int32_t vbatMv = readBatteryWithDelta(deltaMv, haveDelta);
         if (info) {
-            if (runStatusMode(vbatMv, deltaMv, haveDelta)) doFetchCycle();
-            else showError("wifi setup failed or timed out");
+            if (runStatusMode(vbatMv, deltaMv, haveDelta)) doFetchCycle(true);
+            else showError("Wi-Fi connection failed");
         } else {
-            doFetchCycle();
+            doFetchCycle(newPic); // KEY2 is interactive; fetchDue is not
         }
-        digitalWrite(LED_PIN, HIGH);
+        setLed(LedMode::Off);
     }
 
     delay(50);

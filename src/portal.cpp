@@ -8,11 +8,14 @@
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WiFiManager.h>
+#include <time.h>
 
 static WebServer server(80);
 static PortalResult result;
 static bool exitRequested;
 static uint32_t lastActivityMs;
+static bool portalRunning;
+static bool portalPersistent;
 
 String portalUrl() { return "http://" + settings.name + ".local"; }
 
@@ -20,9 +23,9 @@ static String selectOptions(int from, int to, int selected,
                             const char *suffix) {
     String out;
     for (int v = from; v <= to; v++) {
+        String label = (v < 10 ? "0" : "") + String(v) + suffix;
         out += "<option value=\"" + String(v) + "\"" +
-               (v == selected ? " selected" : "") + ">" + String(v) + suffix +
-               "</option>";
+               (v == selected ? " selected" : "") + ">" + label + "</option>";
     }
     return out;
 }
@@ -70,6 +73,23 @@ static String rotOptions() {
     return out;
 }
 
+// One-glance device state under the heading: battery, and when the next
+// photo lands (omitted before the first NTP sync — never show 1970 math).
+static String statusLine() {
+    String s = "battery " + String(batteryPercent(lastVbatMv)) + "%";
+    if (held) return s + " · pinned";
+    if (time(nullptr) > CLOCK_SANE_EPOCH) {
+        time_t next = time(nullptr) + (time_t)plannedSleepSecs();
+        struct tm t;
+        localtime_r(&next, &t);
+        char hm[8];
+        strftime(hm, sizeof(hm), "%H:%M", &t);
+        s += " · next photo ";
+        s += hm;
+    }
+    return s;
+}
+
 // Escape for HTML attribute/text context. Needed for the image URL: it is
 // only validated for scheme + length, so a '"' would otherwise break out of
 // the value="..." attribute and inject markup into every future render.
@@ -87,6 +107,7 @@ static String buildPage(const String &error) {
     page.replace("%ERROR%",
                  error.isEmpty() ? "" : "<div class=\"msg\">" + error + "</div>");
     page.replace("%NAME%", settings.name);
+    page.replace("%STATUS%", statusLine());
     page.replace("%SLEEP_OPTS%", sleepOptions(settings.sleepSecs));
     page.replace("%PAUSED%", held ? "checked" : "");
     page.replace("%QUIET_EN%", settings.quietEnabled ? "checked" : "");
@@ -154,8 +175,7 @@ static void handleSave() {
     prefs.putBool("held", paused);
     held = paused;
 
-    sendDone("Saved", "The frame is applying settings and fetching a "
-                      "picture (the panel takes ~30 s to refresh).");
+    sendDone("Saved", "The frame is applying settings and fetching a picture — the panel takes ~30 s to refresh.<p class=\"note\">To open settings again later, press KEY1 on the frame.</p>");
     result = PortalResult::Saved;
     exitRequested = true;
     Serial.println("portal: settings saved");
@@ -163,7 +183,7 @@ static void handleSave() {
 
 static void handleNewPic() {
     lastActivityMs = millis();
-    sendDone("Fetching", "New picture on the way (~30 s panel refresh).");
+    sendDone("Fetching", "New picture on the way — the panel takes ~30 s to refresh.<p class=\"note\">To open settings again later, press KEY1 on the frame.</p>");
     result = PortalResult::Saved;
     exitRequested = true;
     Serial.println("portal: new picture requested");
@@ -172,8 +192,7 @@ static void handleNewPic() {
 static void handleForgetWifi() {
     lastActivityMs = millis();
     sendDone("Wi-Fi forgotten",
-             "The frame will reopen the <b>" + String(AP_NAME) +
-                 "</b> setup hotspot. Join it to reconnect.");
+             "The frame will show setup instructions on its screen. Join the <b>" + String(AP_NAME) + "</b> hotspot to reconnect.");
     delay(300); // let the response reach the phone BEFORE dropping Wi-Fi
     WiFiManager wm;
     wm.resetSettings(); // disconnects STA — must come after the send
@@ -183,17 +202,23 @@ static void handleForgetWifi() {
 }
 
 bool startPortal() {
+    if (portalRunning) return true;
     if (!MDNS.begin(settings.name.c_str()))
         Serial.println("portal: mDNS failed (IP still works)");
-    server.on("/", HTTP_GET, handleRoot);
-    server.on("/save", HTTP_POST, handleSave);
-    server.on("/action/newpic", HTTP_POST, handleNewPic);
-    server.on("/action/forgetwifi", HTTP_POST, handleForgetWifi);
-    server.onNotFound(
-        []() { server.send(404, "text/plain", "not found"); });
+    static bool routesRegistered = false;
+    if (!routesRegistered) {
+        routesRegistered = true;
+        server.on("/", HTTP_GET, handleRoot);
+        server.on("/save", HTTP_POST, handleSave);
+        server.on("/action/newpic", HTTP_POST, handleNewPic);
+        server.on("/action/forgetwifi", HTTP_POST, handleForgetWifi);
+        server.onNotFound(
+            []() { server.send(404, "text/plain", "not found"); });
+    }
     server.begin();
     Serial.printf("portal: %s (http://%s)\n", portalUrl().c_str(),
                   WiFi.localIP().toString().c_str());
+    portalRunning = true;
     return true;
 }
 
@@ -211,7 +236,29 @@ PortalResult runPortal(uint32_t inactivityTimeoutMs) {
         delay(10);
     }
     delay(200); // let the last HTTP response flush
-    server.stop();
-    MDNS.end();
+    exitRequested = false; // consumed by this session — takePortalAction()
+                           // must not re-fire on it after runPortal returns
+    if (!portalPersistent) stopPortal();
     return result;
 }
+
+void setPortalPersistent(bool on) { portalPersistent = on; }
+
+void servicePortal() {
+    if (portalRunning) server.handleClient();
+}
+
+bool takePortalAction() {
+    if (!exitRequested) return false;
+    exitRequested = false;
+    return true;
+}
+
+void stopPortal() {
+    if (!portalRunning) return;
+    server.stop();
+    MDNS.end();
+    portalRunning = false;
+}
+
+bool portalIsRunning() { return portalRunning; }

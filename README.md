@@ -63,8 +63,7 @@ partial-refresh mode** (color e-ink waveforms are full-panel only).
 ## First-time setup
 
 1. Connect the panel's FPC cable, flip the power switch on, plug in USB-C.
-2. The panel shows Wi-Fi instructions: join the `EE02-Setup` hotspot from
-   a phone, open `http://192.168.4.1`, pick your **2.4 GHz** network.
+2. The panel shows two QR codes: scan the first to join the frame's hotspot (EE02-Setup), and the setup page opens by itself (second QR / http://192.168.4.1 as fallback). Pick your 2.4 GHz network.
 3. Credentials persist on-device (NVS). Nothing secret ever enters this repo.
 
 ## Settings
@@ -94,6 +93,8 @@ flowchart LR
 The page also has **Fetch new picture now** and **Forget Wi-Fi** buttons.
 The portal stops when you leave the status page (press KEY1 again, save,
 or 10 minutes idle) — the device then fetches a picture and sleeps.
+Transient failures on scheduled refreshes never touch the panel — the
+current photo stays up and the next wake retries.
 If saved Wi-Fi stops working (new router, moved house), the frame
 reopens the `EE02-Setup` hotspot by itself.
 
@@ -143,7 +144,8 @@ it first: press any user button and run the upload within the wake window
 (a port-watching loop works well: `until ls /dev/cu.usbmodem* 2>/dev/null;
 do sleep 0.2; done; pio run -t upload`), wait for the scheduled self-wake,
 or hold **BOOT**, tap **RESET**, release BOOT — then flash and press
-RESET after.
+RESET after. While plugged in, the settings portal stays reachable at
+http://<name>.local the whole time — no KEY1 needed.
 
 ## Source layout
 

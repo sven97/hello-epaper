@@ -6,3 +6,4 @@
 // plus the settings keys (see settings.cpp).
 extern Preferences prefs;
 extern bool held; // pin/freeze: timer wakes skip fetching
+extern int32_t lastVbatMv; // most recent battery read (RTC-persisted, main.cpp)

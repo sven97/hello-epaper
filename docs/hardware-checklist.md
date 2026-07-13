@@ -19,10 +19,11 @@ Manual pass on a real EE02 before tagging a release. Monitor at 115200.
 - [ ] Paused checkbox: equals KEY3 (timer wakes take the quick-sleep path)
 - [ ] Fetch-new-picture button: new photo appears
 - [ ] Forget Wi-Fi: EE02-Setup hotspot reopens with instructions
+- [ ] Unplug the router, wait for a scheduled refresh: photo stays, serial logs "keeping photo"; press KEY2: centered error screen appears
 
 ## Regressions
 - [ ] KEY2: 1 blink, new photo
 - [ ] KEY3: 2/1 blinks, pin/unpin; pinned timer wake stays asleep (log)
-- [ ] Cold boot with no Wi-Fi saved: provisioning screen + hotspot works
-- [ ] Dev mode: plugged into a computer — stays awake, buttons polled, KEY1 portal session works, unplug → sleeps
+- [ ] Cold boot with no Wi-Fi saved: provisioning screen with two scannable QR codes; hotspot QR joins, portal QR opens the page
+- [ ] Dev mode: plugged into a computer — stays awake, buttons polled, KEY1 portal session works, portal reachable without pressing KEY1, saving from it fetches a new photo, unplug → sleeps
 - [ ] Battery wake after unplugging: sleeps normally (no dev-mode leak)

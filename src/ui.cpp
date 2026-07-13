@@ -1,6 +1,7 @@
 #include "ui.h"
 #include "config.h"
 #include "display.h"
+#include "layout.h"
 #include "portal.h"
 #include "power.h"
 #include "settings.h"
@@ -89,37 +90,37 @@ void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     batt += ")";
     lines[n++] = batt;
 
+    const LayoutMetrics lm = currentLayout();
     const int cx = epaper.width() / 2;
     epaper.fillScreen(TFT_WHITE);
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
     epaper.setTextDatum(MC_DATUM);
-    epaper.setTextSize(2);
-    const int lineH = 90;
+    epaper.setTextSize(lm.bodySize);
     // Info block in the upper half; QR + legend below it.
-    int y = epaper.height() / 4 - ((n - 1) * lineH) / 2 + 60;
-    for (int i = 0; i < n; i++, y += lineH)
+    int y = epaper.height() / 4 - ((n - 1) * lm.lineH) / 2 + 60;
+    for (int i = 0; i < n; i++, y += lm.lineH)
         epaper.drawString(lines[i], cx, y, 4);
 
     // Caption + URL directly above the QR so the three read as one unit.
     String url = portalUrl();
-    epaper.drawString("Scan to open settings", cx, y, 4); // still size 2
-    epaper.setTextSize(1);
+    epaper.drawString("Scan to open settings", cx, y, 4); // still bodySize
+    epaper.setTextSize(lm.smallSize);
     epaper.drawString(url + (lastIp.isEmpty() ? "" : "   (" + lastIp + ")"),
-                      cx, y + 55, 4);
+                      cx, y + lm.smallLineH, 4);
 
     // Center the QR in the free band below the URL line, scaled so its
     // full extent (33 modules + 4-module quiet zone each side) fits.
-    const int legendTop = epaper.height() - 200;
-    const int bandTop = y + 85;
-    const int bandBottom = legendTop - 30;
+    const int gap = lm.lineH / 3;
+    const int bandTop = y + lm.smallLineH + gap;
+    const int bandBottom = lm.legendTop - gap;
     const int qrCy = (bandTop + bandBottom) / 2;
     const int scale = min(8, (bandBottom - bandTop) / (33 + 8));
     drawQrCode(url, cx, qrCy, scale);
 
-    epaper.drawString("KEY1: back to photo — closes settings", cx, legendTop, 4);
-    epaper.drawString("KEY2: new picture", cx, legendTop + 55, 4);
+    epaper.drawString("KEY1: back to photo — closes settings", cx, lm.legendTop, 4);
+    epaper.drawString("KEY2: new picture", cx, lm.legendTop + lm.smallLineH, 4);
     epaper.drawString(held ? "KEY3: unpin — refreshes resume"
                            : "KEY3: pin this picture",
-                      cx, legendTop + 110, 4);
+                      cx, lm.legendTop + 2 * lm.smallLineH, 4);
     epaper.setTextDatum(TL_DATUM);
 }

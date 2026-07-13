@@ -9,6 +9,12 @@ EPaper epaper;
 
 void applyOrientation() { epaper.setRotation(settings.rotation); }
 
+void initPanelColorMode() {
+#ifdef USE_MUTIGRAY_EPAPER
+    epaper.initGrayMode(16); // must be 4 or 16 literally; GRAY_LEVEL16 == 16
+#endif
+}
+
 void drawQrCode(const String &text, int cx, int cy, int scale) {
     QRCode qr;
     uint8_t data[qrcode_getBufferSize(4)];
@@ -24,23 +30,56 @@ void drawQrCode(const String &text, int cx, int cy, int scale) {
                                 TFT_BLACK);
 }
 
-// Spectra 6 palette: panel nibble index (drawPixel stores it directly at
-// 4 bpp) + sRGB approximation used as the dithering target.
-struct PaletteEntry { uint8_t idx; int16_t r, g, b; };
-static const PaletteEntry PALETTE[6] = {
-    {0x0, 255, 255, 255}, // white
-    {0xF, 0,   0,   0  }, // black
-    {0x6, 255, 0,   0  }, // red
-    {0xB, 255, 255, 0  }, // yellow
-    {0x2, 0,   255, 0  }, // green
-    {0xD, 0,   0,   255}, // blue
-};
+// Panel color/gray index (drawPixel stores it directly, 1 or 4 bpp
+// depending on panel) + sRGB approximation used as the dithering target.
+// idx is uint32_t (not uint8_t) because the mono fallback below uses the
+// library's TFT_WHITE/TFT_BLACK, which are full 16-bit RGB565 values when
+// no color-mode macro applies — TFT_eSprite::drawPixel at 1 bpp only tests
+// truthiness, so passing the raw 16-bit value through works correctly.
+struct PaletteEntry { uint32_t idx; int16_t r, g, b; };
 
-// Floyd-Steinberg dither the RGB565 frame down to the 6 panel colors.
-// Raw RGB565 must never be pushed: at 4 bpp the sprite stores
-// color & 0x0F, i.e. it expects palette nibbles, not RGB values.
+#if defined(USE_COLORFULL_EPAPER) // EE02 (combo 510), and 509/514/516/517/521/523/525
+static const PaletteEntry PALETTE[] = {
+    {TFT_WHITE,  255, 255, 255},
+    {TFT_BLACK,  0,   0,   0  },
+    {TFT_RED,    255, 0,   0  },
+    {TFT_YELLOW, 255, 255, 0  },
+    {TFT_GREEN,  0,   255, 0  },
+    {TFT_BLUE,   0,   0,   255},
+};
+#elif defined(USE_BWRY_EPAPER) // combos 512/513
+static const PaletteEntry PALETTE[] = {
+    {TFT_WHITE,  255, 255, 255},
+    {TFT_BLACK,  0,   0,   0  },
+    {TFT_RED,    255, 0,   0  },
+    {TFT_YELLOW, 255, 255, 0  },
+};
+#elif defined(USE_MUTIGRAY_EPAPER) && defined(GRAY_LEVEL16) // EE03 (combo 511)
+// TFT_GRAY_0 (nibble 0x0) is darkest, TFT_GRAY_15 (0xF) is brightest —
+// evenly spaced luminance targets for the dither search.
+static const PaletteEntry PALETTE[] = {
+    {TFT_GRAY_0,  0,   0,   0  }, {TFT_GRAY_1,  17,  17,  17 },
+    {TFT_GRAY_2,  34,  34,  34 }, {TFT_GRAY_3,  51,  51,  51 },
+    {TFT_GRAY_4,  68,  68,  68 }, {TFT_GRAY_5,  85,  85,  85 },
+    {TFT_GRAY_6,  102, 102, 102}, {TFT_GRAY_7,  119, 119, 119},
+    {TFT_GRAY_8,  136, 136, 136}, {TFT_GRAY_9,  153, 153, 153},
+    {TFT_GRAY_10, 170, 170, 170}, {TFT_GRAY_11, 187, 187, 187},
+    {TFT_GRAY_12, 204, 204, 204}, {TFT_GRAY_13, 221, 221, 221},
+    {TFT_GRAY_14, 238, 238, 238}, {TFT_GRAY_15, 255, 255, 255},
+};
+#else // plain mono default (EE04/EE05, combo 502 and other 1bpp panels)
+static const PaletteEntry PALETTE[] = {
+    {TFT_WHITE, 255, 255, 255},
+    {TFT_BLACK, 0,   0,   0  },
+};
+#endif
+static const int PALETTE_SIZE = sizeof(PALETTE) / sizeof(PALETTE[0]);
+
+// Floyd-Steinberg dither the RGB565 frame down to the panel's palette.
+// Raw RGB565 must never be pushed at 4 bpp: the sprite stores color &
+// 0x0F there, i.e. it expects palette nibbles, not RGB values.
 static bool ditherToPanel(const uint16_t *fb, int w, int h) {
-    Serial.println("dithering to 6-color palette...");
+    Serial.println("dithering to panel palette...");
     const int stride = (w + 2) * 3; // per-channel error, 1-px guard each side
     int16_t *errs = (int16_t *)calloc(2 * stride, sizeof(int16_t));
     if (!errs) {
@@ -61,7 +100,7 @@ static bool ditherToPanel(const uint16_t *fb, int w, int h) {
             b += cur[e + 2]; if (b < 0) b = 0; if (b > 255) b = 255;
             int best = 0;
             int32_t bestD = INT32_MAX;
-            for (int i = 0; i < 6; i++) {
+            for (int i = 0; i < PALETTE_SIZE; i++) {
                 int32_t dr = r - PALETTE[i].r;
                 int32_t dg = g - PALETTE[i].g;
                 int32_t db = b - PALETTE[i].b;

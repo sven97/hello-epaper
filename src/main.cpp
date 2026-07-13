@@ -121,7 +121,7 @@ void setup() {
     delay(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED ? 2000
                                                                      : 200);
     bootCount++;
-    Serial.printf("openee02: boot #%u, wake: %s\n", bootCount, wakeReason());
+    Serial.printf("open-xiao-epaper: boot #%u, wake: %s\n", bootCount, wakeReason());
 
     prefs.begin("frame", false);
     loadSettings();
@@ -170,6 +170,7 @@ void setup() {
 
     epaper.begin();
     applyOrientation(); // settings.rotation; UI + dither target follow
+    initPanelColorMode(); // gray-capable panels only (e.g. EE03); no-op otherwise
 
     if (btnBits & (1ULL << BTN_PIN)) {
         togglePin(); // photo stays up; no fetch, no panel touch

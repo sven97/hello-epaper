@@ -13,8 +13,13 @@ void applyOrientation();
 void drawQrCode(const String &text, int cx, int cy, int scale);
 
 // Decode a baseline JPEG into PSRAM, Floyd-Steinberg dither it to the
-// panel's 6-color palette, and write it into the sprite (no update()).
+// panel's palette, and write it into the sprite (no update()).
 bool renderJpeg(uint8_t *buf, size_t len);
+
+// For gray-capable panels (e.g. EE03): switch the sprite into
+// USE_MUTIGRAY_EPAPER's gray mode. No-op on panels that don't support it.
+// Call once after epaper.begin() / applyOrientation(), before drawing.
+void initPanelColorMode();
 
 // Full-panel error screen (calls update()).
 void showError(const String &msg);

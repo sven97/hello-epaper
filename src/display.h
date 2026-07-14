@@ -3,6 +3,13 @@
 
 extern EPaper epaper;
 
+// True if this panel's native (rotation 0) shape is wider than tall.
+// EE02's native panel is portrait (1200x1600), but EE03/EE04/EE05's native
+// panels are landscape (e.g. 800x480) -- rotation 0 does NOT universally
+// mean "portrait", so the rotation dropdown's labels must be computed from
+// this per board, not hardcoded (see portal.cpp's rotOptions()).
+constexpr bool PANEL_NATIVE_LANDSCAPE = TFT_WIDTH > TFT_HEIGHT;
+
 // Apply the configured orientation (settings.rotation -> setRotation).
 // Call once after epaper.begin(), before any drawing.
 void applyOrientation();

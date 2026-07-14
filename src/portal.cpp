@@ -1,5 +1,6 @@
 #include "portal.h"
 #include "config.h"
+#include "display.h"
 #include "portal_html.h"
 #include "power.h"
 #include "settings.h"
@@ -61,15 +62,21 @@ static String tzOptions() {
     return out;
 }
 
+// Label by the panel's actual visual shape per rotation value, not a fixed
+// rotation->label table: EE03/EE04/EE05's native panel is landscape-shaped
+// (unlike EE02's portrait-native 1200x1600), so rotation 0 there produces a
+// landscape image, not portrait -- see PANEL_NATIVE_LANDSCAPE in display.h.
 static String rotOptions() {
-    static const char *LABELS[4] = {"Portrait", "Landscape",
-                                    "Portrait (flipped)",
-                                    "Landscape (flipped)"};
     String out;
-    for (int r = 0; r < 4; r++)
+    for (int r = 0; r < 4; r++) {
+        bool landscape = (r % 2 == 0) ? PANEL_NATIVE_LANDSCAPE
+                                       : !PANEL_NATIVE_LANDSCAPE;
+        String label = String(landscape ? "Landscape" : "Portrait") +
+                      (r >= 2 ? " (flipped)" : "");
         out += "<option value=\"" + String(r) + "\"" +
-               (r == settings.rotation ? " selected" : "") + ">" + LABELS[r] +
+               (r == settings.rotation ? " selected" : "") + ">" + label +
                "</option>";
+    }
     return out;
 }
 

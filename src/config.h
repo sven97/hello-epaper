@@ -45,6 +45,14 @@ constexpr uint8_t DEFAULT_ROTATION = DEFAULT_ROTATION_VALUE;
 #endif
 inline const char *AP_NAME = AP_NAME_STR;
 
+// Fixed board model for the status screen's subtitle -- distinct from
+// DEFAULT_DEVICE_NAME, which is just the default mDNS hostname and can be
+// renamed by the user in settings; the board model can't.
+#ifndef BOARD_MODEL_STR
+#define BOARD_MODEL_STR "EE02"
+#endif
+inline const char *BOARD_MODEL = BOARD_MODEL_STR;
+
 inline const char *TZ_API_URL =
     "http://ip-api.com/json?fields=status,timezone,offset";
 

@@ -36,7 +36,7 @@ static void showProvisioningScreen() {
     epaper.setTextSize(lm.bodySize);
     epaper.drawString("Wi-Fi setup", cx, lm.provTitleY, 4);
     epaper.drawString("1. Scan to join the frame's hotspot:", cx, lm.provStep1Y, 4);
-    drawQrCode("WIFI:S:" + String(AP_NAME) + ";;", cx, lm.provQr1Y, 4);
+    drawQrCode("WIFI:S:" + String(AP_NAME) + ";;", cx, lm.provQr1Y, lm.provQrScale);
     epaper.setTextSize(lm.smallSize);
     epaper.drawString("(or join \"" + String(AP_NAME) + "\" manually)",
                       cx, lm.provJoinManualY, 4);
@@ -45,7 +45,7 @@ static void showProvisioningScreen() {
     epaper.setTextSize(lm.smallSize);
     epaper.drawString("If it doesn't, scan this or visit http://192.168.4.1:",
                       cx, lm.provQrHintY, 4);
-    drawQrCode("http://192.168.4.1", cx, lm.provQr2Y, 4);
+    drawQrCode("http://192.168.4.1", cx, lm.provQr2Y, lm.provQrScale);
     epaper.setTextSize(lm.bodySize);
     epaper.drawString("3. Pick your 2.4 GHz network.", cx, lm.provStep3Y, 4);
     epaper.setTextSize(lm.smallSize);

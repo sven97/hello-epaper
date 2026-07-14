@@ -6,9 +6,6 @@
 // switch, USB plug, RESET, or a fresh flash).
 const char *wakeReason();
 
-// Same dispatch as wakeReason(), user-facing words — for the panel.
-const char *wakeReasonHuman();
-
 // Persist what the info page needs on non-fetch wakes. Must run on EVERY
 // successful fetch — otherwise the page shows stale data for a photo it
 // doesn't describe.

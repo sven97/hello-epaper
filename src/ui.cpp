@@ -6,6 +6,8 @@
 #include "power.h"
 #include "settings.h"
 #include "state.h"
+#include "logic/battery_curve.h"
+#include "logic/wifi_strength.h"
 #include <WiFi.h>
 #include <time.h>
 // FreeSansBold24pt7b/FreeSansBold12pt7b/FreeSans18pt7b/FreeSans9pt7b/
@@ -34,104 +36,131 @@ void recordFetchMetadata() {
     time_t now = time(nullptr);
     if (now > CLOCK_SANE_EPOCH)
         prefs.putULong("lastEpoch", (uint32_t)now);
-    prefs.putString("wifiDesc",
-                    WiFi.SSID() + " " + String(WiFi.RSSI()) + "dBm");
+    // Stored separately (not one pre-formatted string) so the status
+    // screen's caption row (SSID) and tile row (RSSI bucket) can each
+    // read only what they need.
+    prefs.putString("wifiSsid", WiFi.SSID());
+    prefs.putInt("wifiRssi", WiFi.RSSI());
 }
 
-// One line each for last/next photo (combined -- was two lines), Wi-Fi,
-// battery. The device name and wake reason used to be a fourth line here;
-// dropped to make room for the title/subtitle block below, since the name
-// still appears in the URL under the QR and the wake reason wasn't
-// actionable information for someone reading the panel.
-static void statusInfoLines(int32_t vbatMv, int32_t deltaMv, bool haveDelta,
-                            String out[3]) {
-    time_t lastEpoch = (time_t)prefs.getULong("lastEpoch", 0);
-    String wifiDesc = prefs.getString("wifiDesc", "?");
-
-    String last = "last: --";
-    if (lastEpoch > CLOCK_SANE_EPOCH) {
-        struct tm lastTm;
-        localtime_r(&lastEpoch, &lastTm);
-        char hm[8];
-        strftime(hm, sizeof(hm), "%H:%M", &lastTm);
-        last = "last: " + String(hm);
-    }
-    String next;
-    if (held) {
-        next = "next: pinned";
-    } else if (time(nullptr) > CLOCK_SANE_EPOCH) {
-        time_t nextT = time(nullptr) + (time_t)plannedSleepSecs();
-        struct tm nextTm;
-        localtime_r(&nextT, &nextTm);
-        char hm[8];
-        strftime(hm, sizeof(hm), "%H:%M", &nextTm);
-        next = "next: " + String(hm);
-    } else {
-        next = "next: --";
-    }
-    out[0] = last + "  ·  " + next;
-    out[1] = "Wi-Fi: " + wifiDesc;
-
-    String batt = "battery: " + String(batteryPercent(vbatMv)) + "% (" +
-                  String(vbatMv / 1000.0f, 2) + " V";
-    if (haveDelta && deltaMv >= 20) batt += ", charging";
-    batt += ")";
-    out[2] = batt;
+// "next photo" tile value ("HH:MM", "pinned", or "--"), plus whether it's
+// the pinned state (drives the pin-icon swap in drawStatusScreen).
+static String nextPhotoValue(bool *pinnedOut) {
+    *pinnedOut = held;
+    if (held) return "pinned";
+    if (time(nullptr) <= CLOCK_SANE_EPOCH) return "--";
+    time_t nextT = time(nullptr) + (time_t)plannedSleepSecs();
+    struct tm t;
+    localtime_r(&nextT, &t);
+    char hm[8];
+    strftime(hm, sizeof(hm), "%H:%M", &t);
+    return String(hm);
 }
 
 void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     // Metadata comes from recordFetchMetadata(); this page only reads it.
-    String lastIp = prefs.getString("lastIp", "");
-    String info[3];
-    statusInfoLines(vbatMv, deltaMv, haveDelta, info);
-    String url = portalUrl();
-
     const LayoutMetrics lm = currentLayout();
     const bool large = lm.bodySize == 2;
+
+    const int pct = batteryPercent(vbatMv);
+    const BatteryLevel battLevel = batteryLevelBucket(pct);
+    const bool charging = haveDelta && deltaMv >= 20;
+
+    const int rssi = prefs.getInt("wifiRssi", -100);
+    const WifiStrength wifiLevel = wifiStrengthBucket(rssi);
+    const String ssid = prefs.getString("wifiSsid", "?");
+
+    bool pinned = false;
+    const String nextValue = nextPhotoValue(&pinned);
+
+    time_t lastEpoch = (time_t)prefs.getULong("lastEpoch", 0);
+    String lastStr = "--";
+    if (lastEpoch > CLOCK_SANE_EPOCH) {
+        struct tm t;
+        localtime_r(&lastEpoch, &t);
+        char buf[16];
+        strftime(buf, sizeof(buf), "%a %H:%M", &t);
+        lastStr = buf;
+    }
+
+    char voltBuf[8];
+    snprintf(voltBuf, sizeof(voltBuf), "%.2fV", vbatMv / 1000.0f);
+    const String caption = "last " + lastStr + "  ·  " + ssid + "  ·  " + voltBuf;
+
+    const String url = portalUrl();
+    const String lastIp = prefs.getString("lastIp", "");
+
     epaper.fillScreen(TFT_WHITE);
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
     epaper.setTextDatum(MC_DATUM);
 
-    // Title (bold) + subtitle (regular) -- left column in landscape, the
-    // single centered column in portrait.
+    // Header: title centered; board-model badge right-anchored on the
+    // same mid-line (a fixed corner anchor avoids needing textWidth() to
+    // place it next to the title).
     epaper.setFreeFont(large ? &FreeSansBold24pt7b : &FreeSansBold12pt7b);
-    epaper.drawString("Hello ePaper", lm.leftCx, lm.titleY);
-    epaper.setFreeFont(large ? &FreeSans18pt7b : &FreeSans9pt7b);
-    epaper.drawString(String("XIAO ePaper Display Board ") + BOARD_MODEL,
-                      lm.leftCx, lm.subtitleY);
-
-    // Info lines: bold, classic Font4 (unchanged weight/mechanism).
-    epaper.setTextSize(lm.bodySize);
-    epaper.drawString(info[0], lm.leftCx, lm.info0Y, 4);
-    epaper.drawString(info[1], lm.leftCx, lm.info1Y, 4);
-    epaper.drawString(info[2], lm.leftCx, lm.info2Y, 4);
-
-    // Chrome text (caption/url/legend): unified size, regular weight,
-    // smaller than the subtitle -- large tier uses a regular FreeSans face,
-    // small tier falls back to the classic Font2 bitmap font (no FreeSans
-    // size below 9pt is vendored, and 9pt is already the subtitle's size).
+    epaper.drawString("Hello ePaper", lm.cx, lm.titleY);
+    epaper.setTextDatum(MR_DATUM);
     if (large) {
         epaper.setFreeFont(&FreeSans12pt7b);
-        epaper.drawString("Scan to open settings", lm.rightCx, lm.captionY);
-        epaper.drawString(url + (lastIp.isEmpty() ? "" : "   (" + lastIp + ")"),
-                          lm.rightCx, lm.urlY);
-        epaper.drawString("KEY1: back to photo — closes settings", lm.rightCx, lm.legend0Y);
-        epaper.drawString("KEY2: new picture", lm.rightCx, lm.legend1Y);
-        epaper.drawString(held ? "KEY3: unpin — refreshes resume"
-                               : "KEY3: pin this picture",
-                          lm.rightCx, lm.legend2Y);
+        epaper.drawString(BOARD_MODEL, epaper.width() - lm.marginX, lm.titleY);
     } else {
         epaper.setTextSize(1);
-        epaper.drawString("Scan to open settings", lm.rightCx, lm.captionY, 2);
-        epaper.drawString(url + (lastIp.isEmpty() ? "" : "   (" + lastIp + ")"),
-                          lm.rightCx, lm.urlY, 2);
-        epaper.drawString("KEY1: back to photo — closes settings", lm.rightCx, lm.legend0Y, 2);
-        epaper.drawString("KEY2: new picture", lm.rightCx, lm.legend1Y, 2);
-        epaper.drawString(held ? "KEY3: unpin — refreshes resume"
-                               : "KEY3: pin this picture",
-                          lm.rightCx, lm.legend2Y, 2);
+        epaper.drawString(BOARD_MODEL, epaper.width() - lm.marginX, lm.titleY, 2);
+    }
+    epaper.setTextDatum(MC_DATUM);
+
+    // Divider rule under the header.
+    epaper.fillRect(lm.marginX, lm.ruleY, epaper.width() - 2 * lm.marginX, 3, TFT_BLACK);
+
+    // Tile row: battery / Wi-Fi / next photo, icon + big value + small label.
+    const int iconR = lm.tileValueH / 2;
+    drawBatteryIcon(lm.tile0Cx, lm.tileIconCy, iconR, pct,
+                    batteryColorForLevel(battLevel), charging);
+    drawWifiIcon(lm.tile1Cx, lm.tileIconCy + iconR, iconR, wifiLevel);
+    drawNextPhotoIcon(lm.tile2Cx, lm.tileIconCy, iconR, pinned);
+
+    epaper.setFreeFont(large ? &FreeSans18pt7b : &FreeSans9pt7b);
+    epaper.drawString(String(pct) + "%", lm.tile0Cx, lm.tileValueY);
+    epaper.drawString(wifiStrengthLabel(wifiLevel), lm.tile1Cx, lm.tileValueY);
+    epaper.drawString(nextValue, lm.tile2Cx, lm.tileValueY);
+
+    if (large) {
+        epaper.setFreeFont(&FreeSans12pt7b);
+        epaper.drawString("battery", lm.tile0Cx, lm.tileLabelY);
+        epaper.drawString("Wi-Fi", lm.tile1Cx, lm.tileLabelY);
+        epaper.drawString("next", lm.tile2Cx, lm.tileLabelY);
+        epaper.drawString(caption, lm.cx, lm.captionY);
+    } else {
+        epaper.setTextSize(1);
+        epaper.drawString("battery", lm.tile0Cx, lm.tileLabelY, 2);
+        epaper.drawString("Wi-Fi", lm.tile1Cx, lm.tileLabelY, 2);
+        epaper.drawString("next", lm.tile2Cx, lm.tileLabelY, 2);
+        epaper.drawString(caption, lm.cx, lm.captionY, 2);
     }
 
-    drawQrCode(url, lm.rightCx, lm.qrCy, lm.qrScale);
+    drawQrCode(url, lm.cx, lm.qrCy, lm.qrScale);
+
+    if (large) {
+        epaper.setFreeFont(&FreeSans12pt7b);
+        epaper.drawString("Scan to open settings", lm.cx, lm.scanY);
+        epaper.drawString(url + (lastIp.isEmpty() ? "" : "   (" + lastIp + ")"),
+                          lm.cx, lm.urlY);
+        epaper.drawString("KEY1: back to photo — closes settings", lm.cx, lm.legend0Y);
+        epaper.drawString("KEY2: new picture", lm.cx, lm.legend1Y);
+        epaper.drawString(held ? "KEY3: unpin — refreshes resume"
+                               : "KEY3: pin this picture",
+                          lm.cx, lm.legend2Y);
+    } else {
+        epaper.setTextSize(1);
+        epaper.drawString("Scan to open settings", lm.cx, lm.scanY, 2);
+        epaper.drawString(url + (lastIp.isEmpty() ? "" : "   (" + lastIp + ")"),
+                          lm.cx, lm.urlY, 2);
+        epaper.drawString("KEY1: back to photo — closes settings", lm.cx, lm.legend0Y, 2);
+        epaper.drawString("KEY2: new picture", lm.cx, lm.legend1Y, 2);
+        epaper.drawString(held ? "KEY3: unpin — refreshes resume"
+                               : "KEY3: pin this picture",
+                          lm.cx, lm.legend2Y, 2);
+    }
+
     epaper.setTextDatum(TL_DATUM);
 }

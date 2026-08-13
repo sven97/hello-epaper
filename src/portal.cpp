@@ -215,6 +215,10 @@ static void handleLastJpg() { streamCachedPhoto(server); }
 static void handleCurrent() { streamCurrentBmp(server); }
 static void handlePrevious() { streamPreviousBmp(server); }
 
+static void handleDebugKey1() { simulateButtonPress(BTN_INFO); server.send(200, "text/plain", "ok"); }
+static void handleDebugKey2() { simulateButtonPress(BTN_NEW_PIC); server.send(200, "text/plain", "ok"); }
+static void handleDebugKey3() { simulateButtonPress(BTN_PIN); server.send(200, "text/plain", "ok"); }
+
 static void handleLog() {
     server.send(200, "text/plain", devLog.snapshot());
 }
@@ -239,6 +243,9 @@ bool startPortal() {
         server.on("/last.jpg", HTTP_GET, handleLastJpg);
         server.on("/current", HTTP_GET, handleCurrent);
         server.on("/previous", HTTP_GET, handlePrevious);
+        server.on("/debug/key1", HTTP_POST, handleDebugKey1);
+        server.on("/debug/key2", HTTP_POST, handleDebugKey2);
+        server.on("/debug/key3", HTTP_POST, handleDebugKey3);
         server.on("/log", HTTP_GET, handleLog);
         server.on("/debug", HTTP_GET, handleDebug);
         server.onNotFound(

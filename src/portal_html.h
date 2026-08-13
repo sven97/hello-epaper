@@ -74,9 +74,9 @@ h2{font-size:1rem;margin:1.4rem 0 .3rem}</style>
 <h1>Debug</h1>
 <h2>Displayed now (last fetched photo)</h2>
 <img src="/last.jpg" alt="last fetched photo">
-<h2>On the panel right now</h2>
+<h2>On the panel right now (full resolution)</h2>
 <img src="/current" alt="live panel capture">
-<h2>On the panel just before that</h2>
+<h2>On the panel just before that (thumbnail)</h2>
 <img src="/previous" alt="previous panel capture">
 <h2>Log</h2>
 <pre>%LOG%</pre>

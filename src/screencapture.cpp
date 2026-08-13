@@ -1,23 +1,28 @@
 #include "screencapture.h"
 #include "display.h"
 #include "logic/bmp_thumbnail.h"
+#include <climits>
 #include <cstring>
 
 namespace {
 uint8_t *previousBuf = nullptr;
 size_t previousLen = 0;
 
-// Encodes a thumbnail-sized BMP of the sprite's current content. When
-// server is non-null, streams it directly (outBuf/outLen unused). When
-// server is null, writes a freshly ps_malloc'd buffer to *outBuf/*outLen
-// instead. Single implementation shared by streamCurrentBmp() (streaming)
-// and snapshotPrevious() (buffered) so the row-sampling logic exists in
-// exactly one place.
-bool encodeSpriteBmp(WebServer *server, uint8_t **outBuf, size_t *outLen) {
+// Encodes a BMP of the sprite's current content, downscaled so its long
+// side is at most maxLongSide (pass INT_MAX for full resolution -- never
+// upscales regardless). When server is non-null, streams it directly
+// (outBuf/outLen unused). When server is null, writes a freshly
+// ps_malloc'd buffer to *outBuf/*outLen instead. Single implementation
+// shared by streamCurrentBmp() (streaming, full resolution) and
+// snapshotPrevious() (buffered, thumbnail-capped -- see their callers for
+// why the two differ) so the row-sampling logic exists in exactly one
+// place.
+bool encodeSpriteBmp(WebServer *server, uint8_t **outBuf, size_t *outLen,
+                     int maxLongSide) {
     int srcW = epaper.width(), srcH = epaper.height();
     if (srcW <= 0 || srcH <= 0) return false;
     int w, h;
-    computeThumbnailSize(srcW, srcH, THUMBNAIL_MAX_LONG_SIDE, w, h);
+    computeThumbnailSize(srcW, srcH, maxLongSide, w, h);
     int stride = bmpRowStride(w);
     size_t total = bmpFileSize(w, h);
 
@@ -70,7 +75,10 @@ bool encodeSpriteBmp(WebServer *server, uint8_t **outBuf, size_t *outLen) {
 } // namespace
 
 bool streamCurrentBmp(WebServer &server) {
-    if (!encodeSpriteBmp(&server, nullptr, nullptr)) {
+    // Full resolution: streaming needs no full-image buffer (just one
+    // row-sized scratch buffer), so there's no memory-pressure reason to
+    // downscale here the way snapshotPrevious() must.
+    if (!encodeSpriteBmp(&server, nullptr, nullptr, INT_MAX)) {
         server.send(500, "text/plain", "capture failed");
         return false;
     }
@@ -78,9 +86,14 @@ bool streamCurrentBmp(WebServer &server) {
 }
 
 void snapshotPrevious() {
+    // Thumbnail-capped: this buffer persists in PSRAM until the next
+    // screen change, alongside other large PSRAM users (e.g. the JPEG
+    // decode buffer during a fetch) -- full resolution here risks PSRAM
+    // exhaustion, unlike streamCurrentBmp()'s zero-buffer streaming.
     uint8_t *buf = nullptr;
     size_t len = 0;
-    if (!encodeSpriteBmp(nullptr, &buf, &len)) return; // leave old snapshot in place
+    if (!encodeSpriteBmp(nullptr, &buf, &len, THUMBNAIL_MAX_LONG_SIDE))
+        return; // leave old snapshot in place
     if (previousBuf) free(previousBuf);
     previousBuf = buf;
     previousLen = len;

@@ -47,7 +47,7 @@ bool encodeSpriteBmp(WebServer *server, uint8_t **outBuf, size_t *outLen) {
         memset(rowBuf, 0, stride);
         for (int x = 0; x < w; x++) {
             int srcX = nearestSourceCoord(x, w, srcW);
-            uint16_t color = epaper.readPixel(srcX, srcY);
+            uint16_t color = truePixelColor(srcX, srcY);
             uint8_t r, g, b;
             rgb565ToRgb888(color, r, g, b);
             rowBuf[x * 3 + 0] = b; // BMP pixel order is BGR

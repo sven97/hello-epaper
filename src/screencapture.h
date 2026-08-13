@@ -4,9 +4,12 @@
 
 // Live panel-capture debug routes (see
 // docs/superpowers/specs/2026-08-13-panel-capture-design.md). Both read
-// epaper's sprite via readPixel(), which normalizes every supported
-// panel's storage format (mono/gray/color) back to RGB565 -- no
-// per-panel branching needed here.
+// epaper's sprite via display.h's truePixelColor() -- NOT
+// EPaper::readPixel(), which decodes through TFT_eSPI's generic
+// _colorMap that this project's dithering never populates (see
+// truePixelColor()'s declaration for why). truePixelColor() works
+// uniformly across every supported panel's storage format
+// (mono/gray/color), so no per-panel branching is needed here.
 
 // GET /current: no storage. Streams a live downscaled BMP of whatever's
 // currently in the sprite. Sends its own 500 and returns false on a

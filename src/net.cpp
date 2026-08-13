@@ -1,7 +1,9 @@
 #include "net.h"
 #include "config.h"
 #include "display.h"
+#include "devlog.h"
 #include "layout.h"
+#include "photocache.h"
 #include "portal.h"
 #include "state.h"
 #include "settings.h"
@@ -100,13 +102,13 @@ static bool provisioningScreenShown = false;
 static void showProvisioningScreenOnce() {
     if (provisioningScreenShown) return;
     provisioningScreenShown = true;
-    Serial.println("drawing provisioning instructions (takes ~20-30 s)...");
+    devLog.println("drawing provisioning instructions (takes ~20-30 s)...");
     showProvisioningScreen();
-    Serial.println("instructions on panel");
+    devLog.println("instructions on panel");
 }
 
 static void configModeCallback(WiFiManager *wm) {
-    Serial.printf("config portal up: join \"%s\", then open http://%s\n",
+    devLog.printf("config portal up: join \"%s\", then open http://%s\n",
                   AP_NAME, WiFi.softAPIP().toString().c_str());
     // Fallback draw (saved credentials went stale, so the pre-draw in
     // connectWifi() was skipped). This callback fires before the portal
@@ -129,15 +131,15 @@ bool connectWifi(bool allowPortal) {
     // now, before autoConnect(), so the portal web server isn't blocked
     // behind the ~30 s panel draw when the user tries to reach it.
     if (allowPortal && !wm.getWiFiIsSaved()) showProvisioningScreenOnce();
-    Serial.println("connecting (saved credentials, or captive portal)...");
+    devLog.println("connecting (saved credentials, or captive portal)...");
     bool ok = wm.autoConnect(AP_NAME);
     if (ok) {
-        Serial.printf("connected to %s, IP %s, RSSI %d dBm\n",
+        devLog.printf("connected to %s, IP %s, RSSI %d dBm\n",
                       WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(),
                       WiFi.RSSI());
         prefs.putString("lastIp", WiFi.localIP().toString());
     } else {
-        Serial.println("wifi connect failed");
+        devLog.println("wifi connect failed");
     }
     return ok;
 }
@@ -161,7 +163,7 @@ bool fetchImage(String &err) {
         http.begin(plainClient, url);
     }
     http.setTimeout(20000);
-    Serial.printf("GET %s\n", url.c_str());
+    devLog.printf("GET %s\n", url.c_str());
     int code = http.GET();
     if (code != HTTP_CODE_OK) {
         http.end();
@@ -186,6 +188,8 @@ bool fetchImage(String &err) {
         err = "that URL is not a baseline JPEG";
         return false;
     }
+    savePhotoCache(sink.buf, sink.len); // best-effort: a failed cache
+                                        // write doesn't fail the fetch
     return true;
 }
 
@@ -220,7 +224,7 @@ static long detectUtcOffset() {
                 int e = body.indexOf('"', t + 12);
                 name = body.substring(t + 12, e);
             }
-            Serial.printf("timezone: %s (UTC offset %+ld s)\n",
+            devLog.printf("timezone: %s (UTC offset %+ld s)\n",
                           name.c_str(), off);
             prefs.putLong("tzOff", off);
             return off;
@@ -229,7 +233,7 @@ static long detectUtcOffset() {
         http.end();
     }
     long cached = prefs.getLong("tzOff", 0);
-    Serial.printf("timezone: detect failed (HTTP %d), cached offset %+ld s\n",
+    devLog.printf("timezone: detect failed (HTTP %d), cached offset %+ld s\n",
                   code, cached);
     return cached;
 }

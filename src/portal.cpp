@@ -1,6 +1,8 @@
 #include "portal.h"
 #include "config.h"
 #include "display.h"
+#include "devlog.h"
+#include "photocache.h"
 #include "portal_html.h"
 #include "power.h"
 #include "settings.h"
@@ -185,7 +187,7 @@ static void handleSave() {
     sendDone("Saved", "The frame is applying settings and fetching a picture — the panel takes ~30 s to refresh.<p class=\"note\">To open settings again later, press KEY1 on the frame.</p>");
     result = PortalResult::Saved;
     exitRequested = true;
-    Serial.println("portal: settings saved");
+    devLog.println("portal: settings saved");
 }
 
 static void handleNewPic() {
@@ -193,7 +195,7 @@ static void handleNewPic() {
     sendDone("Fetching", "New picture on the way — the panel takes ~30 s to refresh.<p class=\"note\">To open settings again later, press KEY1 on the frame.</p>");
     result = PortalResult::Saved;
     exitRequested = true;
-    Serial.println("portal: new picture requested");
+    devLog.println("portal: new picture requested");
 }
 
 static void handleForgetWifi() {
@@ -205,13 +207,25 @@ static void handleForgetWifi() {
     wm.resetSettings(); // disconnects STA — must come after the send
     result = PortalResult::ForgetWifi;
     exitRequested = true;
-    Serial.println("portal: wifi credentials forgotten");
+    devLog.println("portal: wifi credentials forgotten");
+}
+
+static void handleLastJpg() { streamCachedPhoto(server); }
+
+static void handleLog() {
+    server.send(200, "text/plain", devLog.snapshot());
+}
+
+static void handleDebug() {
+    String page = FPSTR(DEBUG_HTML);
+    page.replace("%LOG%", htmlEscape(devLog.snapshot()));
+    server.send(200, "text/html", page);
 }
 
 bool startPortal() {
     if (portalRunning) return true;
     if (!MDNS.begin(settings.name.c_str()))
-        Serial.println("portal: mDNS failed (IP still works)");
+        devLog.println("portal: mDNS failed (IP still works)");
     static bool routesRegistered = false;
     if (!routesRegistered) {
         routesRegistered = true;
@@ -219,11 +233,14 @@ bool startPortal() {
         server.on("/save", HTTP_POST, handleSave);
         server.on("/action/newpic", HTTP_POST, handleNewPic);
         server.on("/action/forgetwifi", HTTP_POST, handleForgetWifi);
+        server.on("/last.jpg", HTTP_GET, handleLastJpg);
+        server.on("/log", HTTP_GET, handleLog);
+        server.on("/debug", HTTP_GET, handleDebug);
         server.onNotFound(
             []() { server.send(404, "text/plain", "not found"); });
     }
     server.begin();
-    Serial.printf("portal: %s (http://%s)\n", portalUrl().c_str(),
+    devLog.printf("portal: %s (http://%s)\n", portalUrl().c_str(),
                   WiFi.localIP().toString().c_str());
     portalRunning = true;
     return true;

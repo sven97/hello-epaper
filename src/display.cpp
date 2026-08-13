@@ -1,4 +1,5 @@
 #include "display.h"
+#include "devlog.h"
 #include "config.h"
 #include "settings.h"
 #include "state.h"
@@ -167,11 +168,11 @@ static const int PALETTE_SIZE = sizeof(PALETTE) / sizeof(PALETTE[0]);
 // Raw RGB565 must never be pushed at 4 bpp: the sprite stores color &
 // 0x0F there, i.e. it expects palette nibbles, not RGB values.
 static bool ditherToPanel(const uint16_t *fb, int w, int h) {
-    Serial.println("dithering to panel palette...");
+    devLog.println("dithering to panel palette...");
     const int stride = (w + 2) * 3; // per-channel error, 1-px guard each side
     int16_t *errs = (int16_t *)calloc(2 * stride, sizeof(int16_t));
     if (!errs) {
-        Serial.println("dither buffer alloc failed");
+        devLog.println("dither buffer alloc failed");
         return false;
     }
     int16_t *cur = errs, *next = errs + stride;
@@ -215,7 +216,7 @@ static bool ditherToPanel(const uint16_t *fb, int w, int h) {
         int16_t *tmp = cur; cur = next; next = tmp;
     }
     free(errs);
-    Serial.println("dithering done");
+    devLog.println("dithering done");
     return true;
 }
 
@@ -224,17 +225,17 @@ static bool ditherToPanel(const uint16_t *fb, int w, int h) {
 bool renderJpeg(uint8_t *buf, size_t len) {
     JpegDec.decodeArray(buf, len);
     const int w = JpegDec.width, h = JpegDec.height;
-    Serial.printf("jpeg: %d x %d, MCU %d x %d\n", w, h,
+    devLog.printf("jpeg: %d x %d, MCU %d x %d\n", w, h,
                   JpegDec.MCUWidth, JpegDec.MCUHeight);
     if (w <= 0 || h <= 0 || w > epaper.width() || h > epaper.height()) {
         JpegDec.abort();
-        Serial.println("bad jpeg dimensions");
+        devLog.println("bad jpeg dimensions");
         return false;
     }
     uint16_t *fb = (uint16_t *)ps_malloc((size_t)w * h * sizeof(uint16_t));
     if (!fb) {
         JpegDec.abort();
-        Serial.println("PSRAM alloc for frame failed");
+        devLog.println("PSRAM alloc for frame failed");
         return false;
     }
     while (JpegDec.read()) {

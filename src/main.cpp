@@ -6,8 +6,10 @@
 
 #include "config.h"
 #include "display.h"
+#include "devlog.h"
 #include "logic/quiet_hours.h"
 #include "net.h"
+#include "photocache.h"
 #include "portal.h"
 #include "power.h"
 #include "settings.h"
@@ -27,10 +29,10 @@ static int32_t readBatteryWithDelta(int32_t &deltaMv, bool &haveDelta) {
     deltaMv = haveDelta ? vbatMv - lastVbatMv : 0;
     lastVbatMv = vbatMv;
     if (haveDelta)
-        Serial.printf("battery: %.2f V ~%d%% (%+d mV since last wake)\n",
+        devLog.printf("battery: %.2f V ~%d%% (%+d mV since last wake)\n",
                       vbatMv / 1000.0f, batteryPercent(vbatMv), (int)deltaMv);
     else
-        Serial.printf("battery: %.2f V ~%d%%\n",
+        devLog.printf("battery: %.2f V ~%d%%\n",
                       vbatMv / 1000.0f, batteryPercent(vbatMv));
     return vbatMv;
 }
@@ -44,52 +46,73 @@ static void doFetchCycle(bool interactive) {
     setLed(LedMode::Heartbeat);
     if (!connectWifi(interactive)) {
         if (interactive) showError("Wi-Fi connection failed");
-        else Serial.println("wifi failed — keeping photo, retry next wake");
+        else devLog.println("wifi failed — keeping photo, retry next wake");
         setLed(LedMode::Solid);
         return;
     }
     String err;
     if (!fetchImage(err)) {
         if (interactive) showError(err);
-        else Serial.println("fetch failed (" + err + ") — keeping photo");
+        else devLog.println("fetch failed (" + err + ") — keeping photo");
         setLed(LedMode::Solid);
         return;
     }
     syncClock();
     recordFetchMetadata();
-    Serial.println("updating panel (takes ~20-30 s)...");
+    devLog.println("updating panel (takes ~20-30 s)...");
     epaper.update();
-    Serial.println("done");
+    devLog.println("done");
     setLed(LedMode::Solid);
 }
 
 // KEY1: status page + settings portal. Draw first (from NVS cache, no
 // network), then bring Wi-Fi + the portal up — by the time the panel
 // finishes its ~30 s refresh and a phone is out, the portal is live.
-// Every exit path (KEY1 again, save, timeout, forget-wifi) falls through
-// to a fetch cycle so changes take effect visibly. Returns false only when
-// Wi-Fi never came up (provisioning fallback already drew its own screen);
-// the caller must not run a second connectWifi()/portal window in that case.
+// Exit paths that actually changed something (save, forget-wifi) fall
+// through to a real fetch cycle so the change takes effect visibly.
+// Exit paths that didn't (KEY1 again, idle timeout) redisplay the cached
+// photo instead of burning a network fetch -- and, since the default
+// image source is randomized, instead of silently swapping the picture
+// just because someone glanced at the status screen. Returns false only
+// when Wi-Fi never came up (provisioning fallback already drew its own
+// screen); the caller must not run a second connectWifi()/portal window
+// in that case.
 static bool runStatusMode(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     drawStatusScreen(vbatMv, deltaMv, haveDelta);
-    Serial.println("updating panel (takes ~20-30 s)...");
+    devLog.println("updating panel (takes ~20-30 s)...");
     setLed(LedMode::Heartbeat);
     epaper.update();
     setLed(LedMode::Solid);
-    Serial.println("done");
+    devLog.println("done");
     if (!connectWifi()) return false; // provisioning fallback already drew
-    if (!startPortal()) return true;
+    if (!startPortal()) { doFetchCycle(true); return true; }
     PortalResult r = runPortal(10 * 60 * 1000UL);
     switch (r) {
-        case PortalResult::KeyExit: Serial.println("portal: KEY1 exit"); break;
-        case PortalResult::Timeout: Serial.println("portal: idle timeout"); break;
+        case PortalResult::KeyExit: devLog.println("portal: KEY1 exit"); break;
+        case PortalResult::Timeout: devLog.println("portal: idle timeout"); break;
         case PortalResult::Saved: break;      // logged in the handler
         case PortalResult::ForgetWifi: break; // next connect reopens provisioning
     }
     // Settings (rotation, url, ...) may have changed: reapply orientation
-    // before the fetch redraws the panel.
+    // before the panel is redrawn either way.
     applyOrientation();
-    applyUtcOffset(prefs.getLong("tzOff", 0)); // manual TZ applies even if the fetch fails
+    applyUtcOffset(prefs.getLong("tzOff", 0)); // manual TZ applies either way
+
+    if (r == PortalResult::Saved || r == PortalResult::ForgetWifi) {
+        doFetchCycle(true); // a real setting changed -- show its effect now
+        return true;
+    }
+    // KeyExit / Timeout: nothing changed -- redisplay the cached photo.
+    setLed(LedMode::Heartbeat);
+    if (renderCachedPhoto()) {
+        devLog.println("updating panel (takes ~20-30 s)...");
+        epaper.update();
+        devLog.println("done");
+        setLed(LedMode::Solid);
+    } else {
+        setLed(LedMode::Solid);
+        doFetchCycle(true); // no cache yet (e.g. first boot) -- fall back
+    }
     return true;
 }
 
@@ -97,7 +120,7 @@ static bool runStatusMode(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
 static void togglePin() {
     held = !held;
     prefs.putBool("held", held);
-    Serial.printf("held now %s\n", held ? "on" : "off");
+    devLog.printf("held now %s\n", held ? "on" : "off");
     blinkLed(held ? 2 : 1);
 }
 
@@ -121,7 +144,7 @@ void setup() {
     delay(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED ? 2000
                                                                      : 200);
     bootCount++;
-    Serial.printf("open-xiao-epaper: boot #%u, wake: %s\n", bootCount, wakeReason());
+    devLog.printf("open-xiao-epaper: boot #%u, wake: %s\n", bootCount, wakeReason());
 
     prefs.begin("frame", false);
     loadSettings();
@@ -175,8 +198,8 @@ void setup() {
     if (btnBits & (1ULL << BTN_PIN)) {
         togglePin(); // photo stays up; no fetch, no panel touch
     } else if (btnBits & (1ULL << BTN_INFO)) {
-        if (runStatusMode(vbatMv, deltaMv, haveDelta)) doFetchCycle(true);
-        else showError("Wi-Fi connection failed");
+        if (!runStatusMode(vbatMv, deltaMv, haveDelta))
+            showError("Wi-Fi connection failed");
     } else {
         doFetchCycle(cause != ESP_SLEEP_WAKEUP_TIMER); // power-on / btn-new-pic / timer
     }
@@ -190,7 +213,7 @@ void setup() {
 // configured photo cadence still applies. Host gone -> normal deep sleep.
 void loop() {
     if (!usbHostPresent()) {
-        Serial.println("usb host gone — leaving dev mode");
+        devLog.println("usb host gone — leaving dev mode");
         goToSleep(); // never returns
     }
 
@@ -200,7 +223,7 @@ void loop() {
     if (!portalIsRunning() && WiFi.status() == WL_CONNECTED) {
         setPortalPersistent(true);
         if (startPortal())
-            Serial.println("dev mode: portal up at " + portalUrl());
+            devLog.println("dev mode: portal up at " + portalUrl());
     }
     servicePortal();
     if (takePortalAction()) {
@@ -229,8 +252,8 @@ void loop() {
         bool haveDelta;
         int32_t vbatMv = readBatteryWithDelta(deltaMv, haveDelta);
         if (info) {
-            if (runStatusMode(vbatMv, deltaMv, haveDelta)) doFetchCycle(true);
-            else showError("Wi-Fi connection failed");
+            if (!runStatusMode(vbatMv, deltaMv, haveDelta))
+                showError("Wi-Fi connection failed");
         } else {
             doFetchCycle(newPic); // KEY2 is interactive; fetchDue is not
         }

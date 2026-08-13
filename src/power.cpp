@@ -1,6 +1,7 @@
 #include "power.h"
 #include "config.h"
 #include "display.h"
+#include "devlog.h"
 #include "driver/gpio.h"
 #include "soc/usb_serial_jtag_reg.h"
 #include "logic/battery_curve.h"
@@ -22,7 +23,7 @@ bool usbHostPresent() {
 // the serial port never drops and loop() keeps the buttons live.
 void maybeSleep() {
     if (usbHostPresent()) {
-        Serial.println("dev mode: usb host attached — staying awake");
+        devLog.println("dev mode: usb host attached — staying awake");
         return; // loop() takes over
     }
     goToSleep();
@@ -113,7 +114,7 @@ uint32_t plannedSleepSecs() {
 
 void goToSleep() {
     uint64_t secs = plannedSleepSecs();
-    Serial.printf("sleeping %llu s (buttons also wake)...\n", secs);
+    devLog.printf("sleeping %llu s (buttons also wake)...\n", secs);
     Serial.flush();
     epaper.sleep();                    // panel low-power mode
     pinMode(EPAPER_EN_PIN, OUTPUT);    // cut panel power rail
@@ -129,7 +130,7 @@ void goToSleep() {
 }
 
 void quickSleep(uint32_t secs) {
-    Serial.printf("nothing to do — back to sleep %u s\n", secs);
+    devLog.printf("nothing to do — back to sleep %u s\n", secs);
     Serial.flush();
     esp_sleep_enable_timer_wakeup((uint64_t)secs * 1000000ULL);
     esp_sleep_enable_ext1_wakeup(BUTTON_WAKE_MASK, ESP_EXT1_WAKEUP_ANY_LOW);

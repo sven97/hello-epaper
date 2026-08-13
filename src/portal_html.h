@@ -72,8 +72,12 @@ pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f4;border-radius:
 h2{font-size:1rem;margin:1.4rem 0 .3rem}</style>
 </head><body>
 <h1>Debug</h1>
-<h2>Displayed now</h2>
-<img src="/last.jpg" alt="currently displayed photo">
+<h2>Displayed now (last fetched photo)</h2>
+<img src="/last.jpg" alt="last fetched photo">
+<h2>On the panel right now (full resolution)</h2>
+<img src="/current" alt="live panel capture">
+<h2>On the panel just before that (thumbnail)</h2>
+<img src="/previous" alt="previous panel capture">
 <h2>Log</h2>
 <pre>%LOG%</pre>
 </body></html>)HTML";

@@ -1,6 +1,7 @@
 #include "net.h"
 #include "config.h"
 #include "display.h"
+#include "screencapture.h"
 #include "devlog.h"
 #include "layout.h"
 #include "photocache.h"
@@ -72,6 +73,7 @@ public:
 static void showProvisioningScreen() {
     const LayoutMetrics lm = currentLayout();
     const int cx = epaper.width() / 2;
+    snapshotPrevious();
     epaper.fillScreen(TFT_WHITE);
     epaper.setTextDatum(MC_DATUM);
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
@@ -182,6 +184,7 @@ bool fetchImage(String &err) {
         err = "image server sent no data";
         return false;
     }
+    snapshotPrevious();
     epaper.fillScreen(TFT_WHITE);
     bool rendered = renderJpeg(sink.buf, sink.len);
     if (!rendered) {

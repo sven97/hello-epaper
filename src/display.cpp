@@ -1,4 +1,5 @@
 #include "display.h"
+#include "screencapture.h"
 #include "devlog.h"
 #include "config.h"
 #include "settings.h"
@@ -164,6 +165,31 @@ static const PaletteEntry PALETTE[] = {
 #endif
 static const int PALETTE_SIZE = sizeof(PALETTE) / sizeof(PALETTE[0]);
 
+// See the declaration in display.h for why EPaper::readPixel() can't be
+// used for this instead.
+uint16_t truePixelColor(int x, int y) {
+    uint32_t raw = (uint32_t)epaper.readPixelValue(x, y);
+    int depth = epaper.getColorDepth();
+    if (depth == 16) return (uint16_t)raw; // already a true RGB565 value
+    // 1bpp: drawPixel() only tests idx truthiness (see ditherToPanel's
+    // mono fallback comment), not a bitmask -- match truthiness, not
+    // bits. 4/8bpp: drawPixel() masks the low nibble/byte directly --
+    // match on that mask instead.
+    uint32_t mask = (depth == 1) ? 0 : ((1u << depth) - 1);
+    for (int i = 0; i < PALETTE_SIZE; i++) {
+        uint32_t idx = PALETTE[i].idx;
+        bool match = mask ? ((idx & mask) == (raw & mask))
+                          : ((idx != 0) == (raw != 0));
+        if (match) {
+            uint8_t r = (uint8_t)PALETTE[i].r;
+            uint8_t g = (uint8_t)PALETTE[i].g;
+            uint8_t b = (uint8_t)PALETTE[i].b;
+            return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+        }
+    }
+    return 0; // no match -- fall back to black rather than garbage
+}
+
 // Floyd-Steinberg dither the RGB565 frame down to the panel's palette.
 // Raw RGB565 must never be pushed at 4 bpp: the sprite stores color &
 // 0x0F there, i.e. it expects palette nibbles, not RGB values.
@@ -260,6 +286,7 @@ bool renderJpeg(uint8_t *buf, size_t len) {
 // watching (button-initiated actions) — unattended wakes keep the photo.
 void showError(const String &msg) {
     const int cx = epaper.width() / 2, cy = epaper.height() / 2;
+    snapshotPrevious();
     epaper.fillScreen(TFT_WHITE);
     epaper.setTextDatum(MC_DATUM);
     epaper.setTextSize(2);

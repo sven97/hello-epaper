@@ -3,6 +3,7 @@
 #include "display.h"
 #include "devlog.h"
 #include "layout.h"
+#include "photocache.h"
 #include "portal.h"
 #include "state.h"
 #include "settings.h"
@@ -187,6 +188,8 @@ bool fetchImage(String &err) {
         err = "that URL is not a baseline JPEG";
         return false;
     }
+    savePhotoCache(sink.buf, sink.len); // best-effort: a failed cache
+                                        // write doesn't fail the fetch
     return true;
 }
 

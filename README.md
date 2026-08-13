@@ -182,6 +182,11 @@ rolling copy of the last ~8KB of Serial output — handy when
 log alone: `/log`. Same unauthenticated-on-your-LAN threat model as the
 rest of the portal.
 
+`POST /debug/key1`, `/debug/key2`, `/debug/key3` simulate a physical
+KEY1/KEY2/KEY3 press (status view, new photo, pin/freeze) without
+touching the board — e.g. `curl -X POST http://<name>.local/debug/key2`.
+Same threat model as everything else here.
+
 Plugging in the USB cable is *not* itself a wake source — only
 `esp_sleep_enable_timer_wakeup` (the scheduled refresh) and
 `esp_sleep_enable_ext1_wakeup` (the three buttons) are armed before deep

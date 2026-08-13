@@ -42,3 +42,11 @@ void quickSleep(uint32_t secs);
 // Debounced falling-edge press: true once per physical press (blocks
 // until release). Shared by the dev-mode loop and the portal loop.
 bool buttonPressed(uint8_t pin);
+
+// Marks pin as pressed for the next consumeSimulatedPress(pin) check.
+// Call from a portal HTTP handler to simulate a physical press.
+void simulateButtonPress(uint8_t pin);
+
+// True once per simulateButtonPress(pin) call (check-and-clear). Unlike
+// buttonPressed(), never blocks -- there's no physical bounce to filter.
+bool consumeSimulatedPress(uint8_t pin);

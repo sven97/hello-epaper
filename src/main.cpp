@@ -234,9 +234,10 @@ void loop() {
         setLed(LedMode::Off);
     }
 
-    bool info = buttonPressed(BTN_INFO);
-    bool pin = !info && buttonPressed(BTN_PIN);
-    bool newPic = !info && !pin && buttonPressed(BTN_NEW_PIC);
+    bool info = buttonPressed(BTN_INFO) || consumeSimulatedPress(BTN_INFO);
+    bool pin = !info && (buttonPressed(BTN_PIN) || consumeSimulatedPress(BTN_PIN));
+    bool newPic = !info && !pin &&
+                 (buttonPressed(BTN_NEW_PIC) || consumeSimulatedPress(BTN_NEW_PIC));
 
     bool fetchDue = false;
     if (!held) {

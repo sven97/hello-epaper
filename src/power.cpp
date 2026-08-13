@@ -144,3 +144,20 @@ bool buttonPressed(uint8_t pin) {
     while (digitalRead(pin) == LOW) delay(10);
     return true;
 }
+
+namespace {
+volatile bool simInfo = false, simNewPic = false, simPin = false;
+} // namespace
+
+void simulateButtonPress(uint8_t pin) {
+    if (pin == BTN_INFO) simInfo = true;
+    else if (pin == BTN_NEW_PIC) simNewPic = true;
+    else if (pin == BTN_PIN) simPin = true;
+}
+
+bool consumeSimulatedPress(uint8_t pin) {
+    if (pin == BTN_INFO && simInfo) { simInfo = false; return true; }
+    if (pin == BTN_NEW_PIC && simNewPic) { simNewPic = false; return true; }
+    if (pin == BTN_PIN && simPin) { simPin = false; return true; }
+    return false;
+}

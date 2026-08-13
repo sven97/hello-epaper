@@ -59,3 +59,21 @@ inline const char PORTAL_DONE_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
 <style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:2rem auto;padding:0 1rem;color:#222}
 .note{color:#666;font-size:.85rem}</style>
 </head><body><h1>%TITLE%</h1><div>%BODY%</div></body></html>)HTML";
+
+// Debug page: the currently-cached photo plus the rolling Serial log,
+// readable over HTTP with no interactive serial-monitor TTY needed.
+inline const char DEBUG_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Debug</title>
+<style>body{font-family:system-ui,sans-serif;max-width:34rem;margin:2rem auto;padding:0 1rem;color:#222}
+img{max-width:100%;border:1px solid #ccc;border-radius:6px}
+pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f4;border-radius:6px;padding:.8rem;font-size:.8rem}
+h2{font-size:1rem;margin:1.4rem 0 .3rem}</style>
+</head><body>
+<h1>Debug</h1>
+<h2>Displayed now</h2>
+<img src="/last.jpg" alt="currently displayed photo">
+<h2>Log</h2>
+<pre>%LOG%</pre>
+</body></html>)HTML";

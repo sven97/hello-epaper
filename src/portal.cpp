@@ -2,6 +2,7 @@
 #include "config.h"
 #include "display.h"
 #include "devlog.h"
+#include "photocache.h"
 #include "portal_html.h"
 #include "power.h"
 #include "settings.h"
@@ -209,6 +210,18 @@ static void handleForgetWifi() {
     devLog.println("portal: wifi credentials forgotten");
 }
 
+static void handleLastJpg() { streamCachedPhoto(server); }
+
+static void handleLog() {
+    server.send(200, "text/plain", devLog.snapshot());
+}
+
+static void handleDebug() {
+    String page = FPSTR(DEBUG_HTML);
+    page.replace("%LOG%", htmlEscape(devLog.snapshot()));
+    server.send(200, "text/html", page);
+}
+
 bool startPortal() {
     if (portalRunning) return true;
     if (!MDNS.begin(settings.name.c_str()))
@@ -220,6 +233,9 @@ bool startPortal() {
         server.on("/save", HTTP_POST, handleSave);
         server.on("/action/newpic", HTTP_POST, handleNewPic);
         server.on("/action/forgetwifi", HTTP_POST, handleForgetWifi);
+        server.on("/last.jpg", HTTP_GET, handleLastJpg);
+        server.on("/log", HTTP_GET, handleLog);
+        server.on("/debug", HTTP_GET, handleDebug);
         server.onNotFound(
             []() { server.send(404, "text/plain", "not found"); });
     }

@@ -175,6 +175,13 @@ or hold **BOOT**, tap **RESET**, release BOOT — then flash and press
 RESET after. While plugged in, the settings portal stays reachable at
 http://<name>.local the whole time — no KEY1 needed.
 
+While the portal's up (dev mode, or the 10-minute KEY1 status window),
+`http://<name>.local/debug` shows the currently-displayed photo plus a
+rolling copy of the last ~8KB of Serial output — handy when
+`pio device monitor` isn't available (e.g. no interactive TTY). Plain-text
+log alone: `/log`. Same unauthenticated-on-your-LAN threat model as the
+rest of the portal.
+
 Plugging in the USB cable is *not* itself a wake source — only
 `esp_sleep_enable_timer_wakeup` (the scheduled refresh) and
 `esp_sleep_enable_ext1_wakeup` (the three buttons) are armed before deep

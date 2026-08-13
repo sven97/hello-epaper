@@ -175,6 +175,19 @@ or hold **BOOT**, tap **RESET**, release BOOT — then flash and press
 RESET after. While plugged in, the settings portal stays reachable at
 http://<name>.local the whole time — no KEY1 needed.
 
+Plugging in the USB cable is *not* itself a wake source — only
+`esp_sleep_enable_timer_wakeup` (the scheduled refresh) and
+`esp_sleep_enable_ext1_wakeup` (the three buttons) are armed before deep
+sleep (`power.cpp`). If the board was already asleep on battery power when
+you plug it in, it stays asleep: `setup()` never re-runs, so the
+USB-Serial-JTAG port never enumerates, until the next timer tick or a
+button press. The XIAO ESP32-S3's only USB-power signal is the `5V`/VBUS
+pin itself (raw 5V, not a logic-level GPIO) — Seeed's own docs note every
+GPIO on this board family is already spoken for, so there's no free,
+RTC-capable pin to wire up an `ext0` wake on cable insertion without a
+hardware mod. Pressing a button after plugging in is the expected way to
+get a live port, not a bug.
+
 ## Source layout
 
 ```

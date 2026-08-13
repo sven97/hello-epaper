@@ -1,4 +1,5 @@
 #include "display.h"
+#include "screencapture.h"
 #include "devlog.h"
 #include "config.h"
 #include "settings.h"
@@ -260,6 +261,7 @@ bool renderJpeg(uint8_t *buf, size_t len) {
 // watching (button-initiated actions) — unattended wakes keep the photo.
 void showError(const String &msg) {
     const int cx = epaper.width() / 2, cy = epaper.height() / 2;
+    snapshotPrevious();
     epaper.fillScreen(TFT_WHITE);
     epaper.setTextDatum(MC_DATUM);
     epaper.setTextSize(2);

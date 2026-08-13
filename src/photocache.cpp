@@ -1,6 +1,7 @@
 #include "photocache.h"
 #include "devlog.h"
 #include "display.h"
+#include "screencapture.h"
 #include <LittleFS.h>
 
 namespace {
@@ -79,6 +80,7 @@ bool renderCachedPhoto() {
         devLog.println("photocache: short read");
         return false;
     }
+    snapshotPrevious();
     epaper.fillScreen(TFT_WHITE);
     bool ok = renderJpeg(buf, len);
     free(buf);

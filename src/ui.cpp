@@ -1,6 +1,7 @@
 #include "ui.h"
 #include "config.h"
 #include "display.h"
+#include "screencapture.h"
 #include "layout.h"
 #include "portal.h"
 #include "power.h"
@@ -90,6 +91,7 @@ void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     const String url = portalUrl();
     const String lastIp = prefs.getString("lastIp", "");
 
+    snapshotPrevious();
     epaper.fillScreen(TFT_WHITE);
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
     epaper.setTextDatum(MC_DATUM);

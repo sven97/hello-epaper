@@ -257,7 +257,7 @@ PortalResult runPortal(uint32_t inactivityTimeoutMs) {
     lastActivityMs = millis();
     while (!exitRequested) {
         server.handleClient();
-        if (buttonPressed(BTN_INFO)) {
+        if (buttonPressed(BTN_INFO) || consumeSimulatedPress(BTN_INFO)) {
             result = PortalResult::KeyExit;
             break;
         }

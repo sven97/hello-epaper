@@ -176,16 +176,21 @@ RESET after. While plugged in, the settings portal stays reachable at
 http://<name>.local the whole time — no KEY1 needed.
 
 While the portal's up (dev mode, or the 10-minute KEY1 status window),
-`http://<name>.local/debug` shows the currently-displayed photo plus a
-rolling copy of the last ~8KB of Serial output — handy when
-`pio device monitor` isn't available (e.g. no interactive TTY). Plain-text
-log alone: `/log`. Same unauthenticated-on-your-LAN threat model as the
-rest of the portal.
+`http://<name>.local/debug` is a full remote-debugging page: the last
+fetched photo, a live capture of whatever's actually on the panel right
+now, a capture of what was on it just before that, and a rolling copy of
+the last ~8KB of Serial output — handy when `pio device monitor` isn't
+available (e.g. no interactive TTY). Same unauthenticated-on-your-LAN
+threat model as the rest of the portal. Each piece is also fetchable on
+its own, and the board can be driven remotely too:
 
-`POST /debug/key1`, `/debug/key2`, `/debug/key3` simulate a physical
-KEY1/KEY2/KEY3 press (status view, new photo, pin/freeze) without
-touching the board — e.g. `curl -X POST http://<name>.local/debug/key2`.
-Same threat model as everything else here.
+| Route | Returns |
+|---|---|
+| `GET /log` | Plain-text Serial log |
+| `GET /last.jpg` | The last successfully fetched photo (JPEG) |
+| `GET /current` | Live capture of the panel right now, full resolution (BMP) |
+| `GET /previous` | Capture of the panel just before the most recent redraw, downscaled to a ~400px thumbnail (BMP) |
+| `POST /debug/key1` `/key2` `/key3` | Simulate a KEY1/KEY2/KEY3 press (status view, new photo, pin/freeze) — e.g. `curl -X POST http://<name>.local/debug/key2` |
 
 Plugging in the USB cable is *not* itself a wake source — only
 `esp_sleep_enable_timer_wakeup` (the scheduled refresh) and
@@ -227,6 +232,15 @@ test/             native unit tests (pio test -e native)
   pushed via `pushImage` renders garbage — photos must be dithered to the
   panel's palette (`src/display.cpp` picks the right one per
   `BOARD_SCREEN_COMBO` at compile time).
+- **Reading pixels back has the same pitfall, mirrored.** `EPaper::readPixel()`
+  (from the vendored `TFT_eSPI`) decodes 4bpp/1bpp storage through a
+  generic `_colorMap` this project never populates — it returns
+  self-consistent but meaningless colors. Use `display.h`'s
+  `truePixelColor()` instead: it reads the raw stored value via
+  `readPixelValue()` and reverse-matches it against `display.cpp`'s own
+  `PALETTE` table, the same one `ditherToPanel()` writes through.
+  Confirmed the hard way — `/current` (see above) was pure noise until
+  this fix.
 - **Deep sleep floats digital-only pads** — the panel/battery enable lines
   (GPIO43/6) are latched with `gpio_hold_en` before sleeping, released at
   boot. The held/quiet fast path (`quickSleep`) deliberately leaves them

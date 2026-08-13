@@ -4,6 +4,7 @@
 #include "devlog.h"
 #include "photocache.h"
 #include "portal_html.h"
+#include "screencapture.h"
 #include "power.h"
 #include "settings.h"
 #include "state.h"
@@ -211,6 +212,8 @@ static void handleForgetWifi() {
 }
 
 static void handleLastJpg() { streamCachedPhoto(server); }
+static void handleCurrent() { streamCurrentBmp(server); }
+static void handlePrevious() { streamPreviousBmp(server); }
 
 static void handleLog() {
     server.send(200, "text/plain", devLog.snapshot());
@@ -234,6 +237,8 @@ bool startPortal() {
         server.on("/action/newpic", HTTP_POST, handleNewPic);
         server.on("/action/forgetwifi", HTTP_POST, handleForgetWifi);
         server.on("/last.jpg", HTTP_GET, handleLastJpg);
+        server.on("/current", HTTP_GET, handleCurrent);
+        server.on("/previous", HTTP_GET, handlePrevious);
         server.on("/log", HTTP_GET, handleLog);
         server.on("/debug", HTTP_GET, handleDebug);
         server.onNotFound(

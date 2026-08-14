@@ -72,6 +72,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f4;border-radius:
 h2{font-size:1rem;margin:1.4rem 0 .3rem}</style>
 </head><body>
 <h1>Debug</h1>
+<p class="note">%BOARD% &middot; firmware %HASH%</p>
 <h2>Displayed now (last fetched photo)</h2>
 <img src="/last.jpg" alt="last fetched photo">
 <h2>On the panel right now (full resolution)</h2>

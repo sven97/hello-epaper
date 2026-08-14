@@ -144,7 +144,8 @@ void setup() {
     delay(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_UNDEFINED ? 2000
                                                                      : 200);
     bootCount++;
-    devLog.printf("open-xiao-epaper: boot #%u, wake: %s\n", bootCount, wakeReason());
+    devLog.printf("open-xiao-epaper: boot #%u, wake: %s, firmware: %s\n",
+                  bootCount, wakeReason(), FW_GIT_HASH);
 
     prefs.begin("frame", false);
     loadSettings();

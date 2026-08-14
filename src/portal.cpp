@@ -225,6 +225,8 @@ static void handleLog() {
 
 static void handleDebug() {
     String page = FPSTR(DEBUG_HTML);
+    page.replace("%BOARD%", BOARD_MODEL);
+    page.replace("%HASH%", FW_GIT_HASH);
     page.replace("%LOG%", htmlEscape(devLog.snapshot()));
     server.send(200, "text/html", page);
 }

@@ -186,7 +186,7 @@ its own, and the board can be driven remotely too:
 
 | Route | Returns |
 |---|---|
-| `GET /log` | Plain-text Serial log |
+| `GET /log` | Plain-text Serial log — first line includes the firmware's git hash (see `docs/versioning.md`) |
 | `GET /last.jpg` | The last successfully fetched photo (JPEG) |
 | `GET /current` | Live capture of the panel right now, full resolution (BMP) |
 | `GET /previous` | Capture of the panel just before the most recent redraw, downscaled to a ~400px thumbnail (BMP) |

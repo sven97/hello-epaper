@@ -216,8 +216,11 @@ bool renderJpeg(uint8_t *buf, size_t len) {
     return ok;
 }
 
-// Full-panel error screen. Only drawn when someone is watching
-// (button-initiated actions) — unattended wakes keep the photo.
+// Full-panel error screen. Drawn when someone is watching (button-
+// initiated actions), and — once per outage — from an unattended wake
+// once failures have persisted long enough to escalate (see main.cpp's
+// maybeShowStuckError()). An ordinary unattended failure still keeps the
+// photo untouched; this is the deliberate exception.
 void showError(const String &msg) {
     ScreenContent content = gatherLiveContent(lastVbatMv, 0, false);
     strncpy(content.wifiBase, "failed", sizeof(content.wifiBase) - 1);

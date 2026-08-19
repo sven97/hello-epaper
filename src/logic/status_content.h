@@ -77,7 +77,7 @@ inline int buildLines(ScreenState state, const ContentConfig &cfg,
     if (n < maxOut) {
         char buf[32];
         if (cfg.statDetail && content.batteryVoltage[0])
-            snprintf(buf, sizeof(buf), "%d%% \xC2\xB7 %s", content.batteryPct, content.batteryVoltage);
+            snprintf(buf, sizeof(buf), "%d%% - %s", content.batteryPct, content.batteryVoltage);
         else
             snprintf(buf, sizeof(buf), "%d%%", content.batteryPct);
         setLine(out[n], LineKind::Stat, SizeRole::Stat, buf);
@@ -88,7 +88,7 @@ inline int buildLines(ScreenState state, const ContentConfig &cfg,
     if (n < maxOut) {
         char buf[48];
         if (cfg.statDetail && content.wifiSsid[0])
-            snprintf(buf, sizeof(buf), "%s \xC2\xB7 %s", content.wifiBase, content.wifiSsid);
+            snprintf(buf, sizeof(buf), "%s - %s", content.wifiBase, content.wifiSsid);
         else
             snprintf(buf, sizeof(buf), "%s", content.wifiBase);
         setLine(out[n], LineKind::Stat, SizeRole::Stat, buf);
@@ -98,7 +98,7 @@ inline int buildLines(ScreenState state, const ContentConfig &cfg,
     if (cfg.showNextStat && n < maxOut) {
         char buf[48];
         if (cfg.statDetail && content.lastFetch[0])
-            snprintf(buf, sizeof(buf), "%s \xC2\xB7 %s", content.nextBase, content.lastFetch);
+            snprintf(buf, sizeof(buf), "%s - %s", content.nextBase, content.lastFetch);
         else
             snprintf(buf, sizeof(buf), "%s", content.nextBase);
         setLine(out[n], LineKind::Stat, SizeRole::Stat, buf);
@@ -146,10 +146,10 @@ inline int buildLines(ScreenState state, const ContentConfig &cfg,
         snprintf(combinedBuf, sizeof(combinedBuf), "KEY1 Show Screen");
     } else if (state == ScreenState::Error) {
         legendPhrase[0] = "Configuration"; legendPhrase[1] = "Retry"; legendPhrase[2] = "Pin";
-        snprintf(combinedBuf, sizeof(combinedBuf), "KEY1 Config \xC2\xB7 KEY2 Retry \xC2\xB7 KEY3 Pin");
+        snprintf(combinedBuf, sizeof(combinedBuf), "KEY1 Config - KEY2 Retry - KEY3 Pin");
     } else {
         legendPhrase[0] = "Configuration"; legendPhrase[1] = "Refresh"; legendPhrase[2] = "Pin";
-        snprintf(combinedBuf, sizeof(combinedBuf), "KEY1 Config \xC2\xB7 KEY2 Refresh \xC2\xB7 KEY3 Pin");
+        snprintf(combinedBuf, sizeof(combinedBuf), "KEY1 Config - KEY2 Refresh - KEY3 Pin");
     }
     if (cfg.legendMode == LegendMode::Full) {
         for (int k = 0; k < 3 && n < maxOut; k++) {

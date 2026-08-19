@@ -72,7 +72,7 @@ void test_buildLines_stat_detail_dropped_at_level3() {
     int n = buildLines(ScreenState::Normal, cfg, c, "EE02", "abc123", "EE02-Setup", lines, MAX_CONTENT_LINES);
     for (int i = 0; i < n; i++) {
         if (lines[i].kind == LineKind::Stat)
-            TEST_ASSERT_TRUE(strstr(lines[i].text, "\xC2\xB7") == nullptr); // no detail separator
+            TEST_ASSERT_TRUE(strstr(lines[i].text, " - ") == nullptr); // no detail separator
     }
 }
 

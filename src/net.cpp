@@ -3,11 +3,12 @@
 #include "display.h"
 #include "screencapture.h"
 #include "devlog.h"
-#include "layout.h"
 #include "photocache.h"
 #include "portal.h"
+#include "power.h"
 #include "state.h"
 #include "settings.h"
+#include "ui.h"
 #include "logic/url_template.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -65,37 +66,18 @@ public:
     static constexpr size_t MAX_BYTES = 16UL * 1024 * 1024;
 };
 
-// First-boot / stale-credentials instructions. Everything centered and
-// sized from the panel so it renders in every rotation and panel size
-// (proportional y anchors from LayoutMetrics — see layout_math.h). Phones
-// join the open hotspot from the first QR; the captive-portal page usually
-// pops up by itself.
+// First-boot / stale-credentials instructions -- the unified frame's
+// Onboarding state. Battery is read fresh (no Wi-Fi/NVS metadata exists
+// yet before a connection); Wi-Fi/next-fetch stay "--" (see the design
+// spec's per-state field table).
 static void showProvisioningScreen() {
-    const LayoutMetrics lm = currentLayout();
-    const int cx = epaper.width() / 2;
+    ScreenContent content{};
+    content.batteryPct = batteryPercent(readBatteryMv());
+    strncpy(content.wifiBase, "--", sizeof(content.wifiBase) - 1);
+    strncpy(content.nextBase, "--", sizeof(content.nextBase) - 1);
     snapshotPrevious();
-    epaper.fillScreen(TFT_WHITE);
-    epaper.setTextDatum(MC_DATUM);
-    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
-    epaper.setTextSize(lm.bodySize);
-    epaper.drawString("Wi-Fi setup", cx, lm.provTitleY, 4);
-    epaper.drawString("1. Scan to join the frame's hotspot:", cx, lm.provStep1Y, 4);
-    drawQrCode("WIFI:S:" + String(AP_NAME) + ";;", cx, lm.provQr1Y, lm.provQrScale);
-    epaper.setTextSize(lm.smallSize);
-    epaper.drawString("(or join \"" + String(AP_NAME) + "\" manually)",
-                      cx, lm.provJoinManualY, 4);
-    epaper.setTextSize(lm.bodySize);
-    epaper.drawString("2. A setup page opens by itself.", cx, lm.provStep2Y, 4);
-    epaper.setTextSize(lm.smallSize);
-    epaper.drawString("If it doesn't, scan this or visit http://192.168.4.1:",
-                      cx, lm.provQrHintY, 4);
-    drawQrCode("http://192.168.4.1", cx, lm.provQr2Y, lm.provQrScale);
-    epaper.setTextSize(lm.bodySize);
-    epaper.drawString("3. Pick your 2.4 GHz network.", cx, lm.provStep3Y, 4);
-    epaper.setTextSize(lm.smallSize);
-    epaper.drawString("Change or forget it later: press KEY1, open Settings.",
-                      cx, lm.provChangeY, 4);
-    epaper.setTextDatum(TL_DATUM);
+    PortraitScope portrait;
+    drawFrameScreen(ScreenState::Onboarding, content);
     epaper.update();
 }
 

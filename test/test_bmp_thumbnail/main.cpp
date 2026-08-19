@@ -35,6 +35,56 @@ void test_nearest_source_coord_single_dest_pixel() {
     TEST_ASSERT_EQUAL_INT(0, nearestSourceCoord(0, 1, 1600));
 }
 
+void test_source_range_for_dest_downscale() {
+    int start, end;
+    sourceRangeForDest(0, 400, 1600, start, end);
+    TEST_ASSERT_EQUAL_INT(0, start);
+    TEST_ASSERT_EQUAL_INT(4, end);
+    sourceRangeForDest(200, 400, 1600, start, end);
+    TEST_ASSERT_EQUAL_INT(800, start);
+    TEST_ASSERT_EQUAL_INT(804, end);
+    sourceRangeForDest(399, 400, 1600, start, end);
+    TEST_ASSERT_EQUAL_INT(1596, start);
+    TEST_ASSERT_EQUAL_INT(1600, end); // clamped to srcSize, not 1604
+}
+
+void test_source_range_for_dest_no_downscale_is_single_pixel() {
+    // destSize == srcSize (no scaling): every destination pixel must map
+    // to exactly one source pixel, matching nearestSourceCoord's identity
+    // mapping -- averaging over more than one pixel here would blur a
+    // full-resolution capture that doesn't need it.
+    for (int i = 0; i < 1600; i++) {
+        int start, end;
+        sourceRangeForDest(i, 1600, 1600, start, end);
+        TEST_ASSERT_EQUAL_INT(i, start);
+        TEST_ASSERT_EQUAL_INT(i + 1, end);
+    }
+}
+
+void test_source_range_for_dest_covers_full_source_contiguously() {
+    // Ranges across all destination pixels must partition the source
+    // range exactly: no gaps, no overlaps, and the very first/last must
+    // touch the source bounds -- otherwise a box-filter average would
+    // silently skip or double-count source pixels.
+    const int destSize = 300, srcSize = 1200;
+    int prevEnd = 0;
+    for (int i = 0; i < destSize; i++) {
+        int start, end;
+        sourceRangeForDest(i, destSize, srcSize, start, end);
+        TEST_ASSERT_EQUAL_INT(prevEnd, start);
+        TEST_ASSERT_TRUE(end > start);
+        prevEnd = end;
+    }
+    TEST_ASSERT_EQUAL_INT(srcSize, prevEnd);
+}
+
+void test_source_range_for_dest_single_dest_pixel_spans_whole_source() {
+    int start, end;
+    sourceRangeForDest(0, 1, 1600, start, end);
+    TEST_ASSERT_EQUAL_INT(0, start);
+    TEST_ASSERT_EQUAL_INT(1600, end);
+}
+
 void test_rgb565_to_rgb888_white() {
     uint8_t r, g, b;
     rgb565ToRgb888(0xFFFF, r, g, b);
@@ -109,6 +159,10 @@ int main() {
     RUN_TEST(test_downscale_tall);
     RUN_TEST(test_nearest_source_coord_basic);
     RUN_TEST(test_nearest_source_coord_single_dest_pixel);
+    RUN_TEST(test_source_range_for_dest_downscale);
+    RUN_TEST(test_source_range_for_dest_no_downscale_is_single_pixel);
+    RUN_TEST(test_source_range_for_dest_covers_full_source_contiguously);
+    RUN_TEST(test_source_range_for_dest_single_dest_pixel_spans_whole_source);
     RUN_TEST(test_rgb565_to_rgb888_white);
     RUN_TEST(test_rgb565_to_rgb888_black);
     RUN_TEST(test_rgb565_to_rgb888_pure_red);

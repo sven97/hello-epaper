@@ -6,7 +6,12 @@
 // panel shows instructions. With allowPortal=false — unattended timer
 // wakes — never touch the panel or open an AP: fail fast and return
 // false so the caller can keep the current photo and retry next wake.
-bool connectWifi(bool allowPortal = true);
+// forceRadioReset power-cycles the Wi-Fi radio (WiFi.mode OFF -> STA)
+// before attempting to connect — never erases saved credentials, only
+// clears any stuck radio/connection-manager state. The caller passes
+// true once a wake has already failed at least once this outage (see
+// doFetchCycle()'s fetchFailStreak).
+bool connectWifi(bool allowPortal = true, bool forceRadioReset = false);
 
 // Fetch a photo into the sprite, dithered. On failure fills err with a
 // short user-facing message and draws nothing — the caller decides

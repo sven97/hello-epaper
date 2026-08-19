@@ -78,10 +78,9 @@ static void doFetchCycle(bool interactive) {
 // screen); the caller must not run a second connectWifi()/portal window
 // in that case.
 static bool runStatusMode(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
-    drawStatusScreen(vbatMv, deltaMv, haveDelta);
-    devLog.println("updating panel (takes ~20-30 s)...");
+    devLog.println("drawing status screen (takes ~20-30 s)...");
     setLed(LedMode::Heartbeat);
-    epaper.update();
+    drawStatusScreen(vbatMv, deltaMv, haveDelta); // draws + epaper.update()
     setLed(LedMode::Solid);
     devLog.println("done");
     if (!connectWifi()) return false; // provisioning fallback already drew

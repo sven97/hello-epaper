@@ -4,6 +4,7 @@
 #include "config.h"
 #include "settings.h"
 #include "state.h"
+#include "ui.h"
 #include <JPEGDecoder.h>
 #include <qrcode.h>
 
@@ -228,21 +229,14 @@ bool renderJpeg(uint8_t *buf, size_t len) {
     return ok;
 }
 
-// Full-panel error screen (calls update()). Only drawn when someone is
-// watching (button-initiated actions) — unattended wakes keep the photo.
+// Full-panel error screen. Only drawn when someone is watching
+// (button-initiated actions) — unattended wakes keep the photo.
 void showError(const String &msg) {
-    const int cx = epaper.width() / 2, cy = epaper.height() / 2;
+    ScreenContent content = gatherLiveContent(lastVbatMv, 0, false);
+    strncpy(content.wifiBase, "failed", sizeof(content.wifiBase) - 1);
+    strncpy(content.errorMsg, msg.c_str(), sizeof(content.errorMsg) - 1);
     snapshotPrevious();
-    epaper.fillScreen(TFT_WHITE);
-    epaper.setTextDatum(MC_DATUM);
-    epaper.setTextSize(2);
-    epaper.setTextColor(TFT_RED, TFT_WHITE);
-    epaper.drawString("Something went wrong", cx, cy - 100, 4);
-    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
-    epaper.drawString(msg, cx, cy, 4);
-    epaper.setTextSize(1);
-    epaper.drawString("Check your Wi-Fi, then press KEY2 to try again.",
-                      cx, cy + 90, 4);
-    epaper.setTextDatum(TL_DATUM);
+    PortraitScope portrait;
+    drawFrameScreen(ScreenState::Error, content);
     epaper.update();
 }

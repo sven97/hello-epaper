@@ -54,19 +54,6 @@ void drawQrCode(const String &text, int cx, int cy, int scale) {
                                 TFT_BLACK);
 }
 
-uint32_t batteryColorForLevel(BatteryLevel level) {
-#if defined(USE_COLORFULL_EPAPER)
-    switch (level) {
-        case BatteryLevel::Low:    return TFT_RED;
-        case BatteryLevel::Medium: return TFT_YELLOW;
-        default:                   return TFT_GREEN;
-    }
-#else
-    (void)level;
-    return TFT_BLACK;
-#endif
-}
-
 // Panel color/gray index (drawPixel stores it directly, 1 or 4 bpp
 // depending on panel) + sRGB approximation used as the dithering target.
 // idx is uint32_t (not uint8_t) because the mono fallback below uses the

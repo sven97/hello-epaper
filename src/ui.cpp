@@ -7,10 +7,10 @@
 #include "power.h"
 #include "settings.h"
 #include "state.h"
-#include "logic/battery_curve.h"
 #include "logic/wifi_strength.h"
 #include <WiFi.h>
 #include <time.h>
+#include <cstring>
 // FreeSansBold24pt7b/18pt7b/12pt7b/9pt7b and FreeSans18pt7b/12pt7b/9pt7b
 // are already pulled in unconditionally by Seeed_GFX's gfxfont.h (via
 // <TFT_eSPI.h>, included through display.h) whenever LOAD_GFXFF is
@@ -184,17 +184,19 @@ void drawFrameScreen(ScreenState state, const ScreenContent &content) {
             y += lineH / 2;
             const int colCenterX = fit.marginX + (fit.rowW - fl.widthPx) / 2;
             const uint8_t *bmp =
-                fl.line.icon == StatIcon::Wifi ? ICON_WIFI :
-                fl.line.icon == StatIcon::Refresh ? ICON_REFRESH :
-                fl.line.icon == StatIcon::Battery
-                    ? (fl.line.batteryPct >= 70 ? ICON_BATTERY_FULL
-                     : fl.line.batteryPct >= 30 ? ICON_BATTERY_MEDIUM
-                                                 : ICON_BATTERY_LOW)
+                fl.line.icon == StatIcon::Wifi
+                    ? (strcmp(fl.line.wifiBase, "strong") == 0 ? ICON_WIFI_FULL
+                     : strcmp(fl.line.wifiBase, "fair") == 0   ? ICON_WIFI_MEDIUM
+                     : strcmp(fl.line.wifiBase, "weak") == 0   ? ICON_WIFI_LOW
+                                                                : ICON_WIFI_NONE)
+                : fl.line.icon == StatIcon::Next ? ICON_NEXT
+                : fl.line.icon == StatIcon::Battery
+                    ? (fl.line.batteryPct >= 75 ? ICON_BATTERY_FULL
+                     : fl.line.batteryPct >= 50 ? ICON_BATTERY_MEDIUM
+                     : fl.line.batteryPct >= 25 ? ICON_BATTERY_LOW
+                                                 : ICON_BATTERY_EMPTY)
                     : nullptr;
-            uint32_t fg = TFT_BLACK;
-            if (fl.line.icon == StatIcon::Battery)
-                fg = batteryColorForLevel(batteryLevelBucket(fl.line.batteryPct));
-            if (bmp) drawStatusIcon(bmp, colCenterX - ICON_W / 2, y - ICON_H / 2, fg);
+            if (bmp) drawStatusIcon(bmp, colCenterX - ICON_W / 2, y - ICON_H / 2, TFT_BLACK);
             const int textX = fit.marginX + fit.rowW - fl.widthPx;
             drawFittedText(fl.line.text, textX, y, ML_DATUM, fl.line.sizeRole, fl.fontPx);
             y += lineH - lineH / 2;

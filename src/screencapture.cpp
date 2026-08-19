@@ -48,16 +48,36 @@ bool encodeSpriteBmp(WebServer *server, uint8_t **outBuf, size_t *outLen,
 
     for (int fileRow = 0; fileRow < h; fileRow++) {
         int destRow = bmpSourceRowForFileRow(fileRow, h);
-        int srcY = nearestSourceCoord(destRow, h, srcH);
+        int syStart, syEnd;
+        sourceRangeForDest(destRow, h, srcH, syStart, syEnd);
         memset(rowBuf, 0, stride);
         for (int x = 0; x < w; x++) {
-            int srcX = nearestSourceCoord(x, w, srcW);
-            uint16_t color = truePixelColor(srcX, srcY);
-            uint8_t r, g, b;
-            rgb565ToRgb888(color, r, g, b);
-            rowBuf[x * 3 + 0] = b; // BMP pixel order is BGR
-            rowBuf[x * 3 + 1] = g;
-            rowBuf[x * 3 + 2] = r;
+            int sxStart, sxEnd;
+            sourceRangeForDest(x, w, srcW, sxStart, sxEnd);
+            // Box-filter average over every source pixel this destination
+            // pixel covers -- NOT a single nearest-neighbor sample. Panel
+            // content is Floyd-Steinberg dithered, which scatters
+            // per-pixel color noise to fake continuous tone; point-
+            // sampling that noise at a downscaled stride is close to
+            // random (looks like static), while averaging the box
+            // recovers the intended color, the same way mipmap
+            // downscaling handles high-frequency source content.
+            uint32_t rSum = 0, gSum = 0, bSum = 0;
+            int count = 0;
+            for (int srcY = syStart; srcY < syEnd; srcY++) {
+                for (int srcX = sxStart; srcX < sxEnd; srcX++) {
+                    uint16_t color = truePixelColor(srcX, srcY);
+                    uint8_t r, g, b;
+                    rgb565ToRgb888(color, r, g, b);
+                    rSum += r;
+                    gSum += g;
+                    bSum += b;
+                    count++;
+                }
+            }
+            rowBuf[x * 3 + 0] = (uint8_t)(bSum / count); // BMP pixel order is BGR
+            rowBuf[x * 3 + 1] = (uint8_t)(gSum / count);
+            rowBuf[x * 3 + 2] = (uint8_t)(rSum / count);
         }
         if (server) {
             server->sendContent((const char *)rowBuf, stride);

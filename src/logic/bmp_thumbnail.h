@@ -37,6 +37,31 @@ inline int nearestSourceCoord(int destIdx, int destSize, int srcSize) {
     return (int)v;
 }
 
+// Maps a destination pixel coordinate to the half-open [start, end) range
+// of source coordinates it covers, partitioning the full source range
+// contiguously and without overlap across all destIdx in [0, destSize).
+// Used for box-filter downscale averaging (unlike nearestSourceCoord's
+// single-sample point mapping): reading only every Nth source pixel
+// aliases badly against dithered panel content, since Floyd-Steinberg
+// dithering scatters per-pixel color noise that a point sample can't
+// reconstruct -- averaging the whole box recovers the intended color.
+// When destSize == srcSize (no downscale), every range is exactly one
+// pixel wide, matching nearestSourceCoord's identity mapping exactly.
+inline void sourceRangeForDest(int destIdx, int destSize, int srcSize,
+                                int &start, int &end) {
+    if (destSize <= 1) {
+        start = 0;
+        end = srcSize;
+        return;
+    }
+    long long s = (long long)destIdx * srcSize / destSize;
+    long long e = (long long)(destIdx + 1) * srcSize / destSize;
+    if (e <= s) e = s + 1;
+    if (e > srcSize) e = srcSize;
+    start = (int)s;
+    end = (int)e;
+}
+
 // RGB565 -> individual 8-bit channels (5/6/5 bit widths expanded to 8).
 inline void rgb565ToRgb888(uint16_t color, uint8_t &r, uint8_t &g, uint8_t &b) {
     uint8_t r5 = (uint8_t)((color >> 11) & 0x1F);

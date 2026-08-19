@@ -220,7 +220,7 @@ inline ScreenFit fitScreen(ScreenState state, const ScreenContent &content,
         // from the stat size, which is exactly what's being solved for).
         FitItem statItemsRough[3];
         int statCount = 0;
-        for (int i = 0; i < lineCount; i++)
+        for (int i = 0; i < lineCount && statCount < 3; i++)
             if (lines[i].kind == LineKind::Stat)
                 statItemsRough[statCount++] = FitItem{lines[i].text, rowW};
         int statSize = statCount
@@ -229,7 +229,7 @@ inline ScreenFit fitScreen(ScreenState state, const ScreenContent &content,
         float reserve = statSize * ICON_COL_RESERVE_FACTOR;
 
         FitItem statItems[3];
-        for (int i = 0; i < statCount; i++) {
+        for (int i = 0; i < statCount && i < 3; i++) {
             int w = (int)(rowW - reserve);
             statItems[i] = FitItem{statItemsRough[i].text, w > 10 ? w : 10};
         }

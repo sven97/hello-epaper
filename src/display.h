@@ -2,7 +2,6 @@
 #include <TFT_eSPI.h> // Seeed_GFX; provides EPaper for the selected combo
 #include "icons.h"
 #include "logic/battery_curve.h"
-#include "logic/wifi_strength.h"
 
 extern EPaper epaper;
 

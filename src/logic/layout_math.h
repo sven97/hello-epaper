@@ -24,8 +24,12 @@ constexpr int TITLE_SIZES_N = 6, STAT_SIZES_N = 5, CHROME_SIZES_N = 3;
 // How much of a stat/legend row's width the shared icon/keycap column
 // eats, as a multiple of that role's own font size -- the icon itself
 // plus a small gap. See the atlas's "strong" -> "stro" clipping bug this
-// guards against (design spec's Sizing engine section).
-constexpr float ICON_COL_RESERVE_FACTOR = 1.65f;
+// guards against (design spec's Sizing engine section). Doubled alongside
+// icons.h's 24px -> 48px upscale: this factor is a multiple of font size,
+// not of the icon's own fixed pixel size, so doubling it exactly
+// reproduces the original icon:gap:text ratio at every font-ladder rung
+// instead of just at whichever rung it happened to be tuned against.
+constexpr float ICON_COL_RESERVE_FACTOR = 3.3f;
 // Line box height as a multiple of font size -- enough headroom for
 // ascenders/descenders without wasting space.
 constexpr float LINE_HEIGHT = 1.3f;

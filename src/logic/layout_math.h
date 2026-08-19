@@ -9,6 +9,8 @@
 // in status_content.h, which includes this header; this file is only the
 // role-agnostic sizing/QR/reduction-cascade math.
 
+#include <cstdint>
+
 // ---- Font ladders: every size is a real, compiled-in firmware font
 // asset (see fontFor() in ui.cpp for the size -> font-object mapping),
 // largest first. Title: FreeSansBold 24/18/12/9pt, then classic

@@ -1,171 +1,223 @@
 #pragma once
-// Proportional screen layout math. Pure logic: host-testable, no Arduino
-// deps. Line spacing is derived from the actual rendered font size (GFXFF
-// font 4 is ~26px tall per its native size; setTextSize(N) scales that by
-// N), not a fixed fraction of panel height -- a fixed-height-fraction
-// spacing broke on EE04/EE05's 800x480 default panel: bodySize stayed at
-// its large tier (font stays ~52px tall) while height-fraction spacing
-// shrank well below that, so lines overlapped each other outright, not
-// just clipped at the edges. Deriving spacing from the font actually being
-// drawn keeps text non-overlapping at any panel size.
+// Font-fitting and QR-sizing math for the unified status/onboarding/error
+// screen. Pure logic: host-testable, no Arduino deps. Ported from the
+// validated browser atlas (docs/superpowers/specs/2026-08-13-status-page-atlas.html)
+// -- see docs/superpowers/specs/2026-08-18-unified-status-screen-design.md
+// for the full design this implements.
 //
-// The status screen (ui.cpp) uses one adaptive vertical stack -- title +
-// board-model badge, a divider rule, a 3-tile dashboard row (battery/
-// Wi-Fi/next-photo), a caption line, the settings QR, and a button legend
-// -- for every panel size and orientation. There is deliberately no
-// separate landscape (two-column) layout: a short landscape panel (e.g.
-// EE04's 800x480) just shrinks the same stack via the existing
-// scale-to-fit QR logic and font tiers below.
+// Content-line building and the top-level fitScreen() orchestration live
+// in status_content.h, which includes this header; this file is only the
+// role-agnostic sizing/QR/reduction-cascade math.
 
-// Native pixel height of GFXFF font 4 (see the LOAD_FONT4 comment in
-// Seeed_GFX's Setup5xx headers: "Medium 26 pixel high font").
-constexpr int FONT4_NATIVE_PX = 26;
-// QR modules (33) plus the 4-module quiet zone on each side (drawQrCode).
-constexpr int QR_MODULES_WITH_QUIET_ZONE = 33 + 8;
+// ---- Font ladders: every size is a real, compiled-in firmware font
+// asset (see fontFor() in ui.cpp for the size -> font-object mapping),
+// largest first. Title: FreeSansBold 24/18/12/9pt, then classic
+// Font2/Font1. Stat: FreeSans 18/12/9pt, then classic Font2/Font1.
+// Chrome: FreeSans 12pt, then classic Font2/Font1.
+constexpr int TITLE_SIZES[] = {56, 42, 29, 22, 16, 8};
+constexpr int STAT_SIZES[]  = {42, 29, 22, 16, 8};
+constexpr int CHROME_SIZES[] = {29, 16, 8};
+constexpr int TITLE_SIZES_N = 6, STAT_SIZES_N = 5, CHROME_SIZES_N = 3;
 
-// Status-screen font sizes (yAdvance, taken directly from the vendored
-// Fonts/GFXFF/FreeSans*.h headers) for the two size tiers. Large tier:
-// FreeSansBold24pt7b (title) / FreeSans18pt7b (tile value) / FreeSans12pt7b
-// (chrome: badge/tile label/caption/scan/url/legend). Small tier:
-// FreeSansBold12pt7b / FreeSans9pt7b / classic Font2 (16px -- there's no
-// FreeSans size below 9pt vendored, and 9pt is already used for the tile
-// value on this tier, so chrome text falls back to the smaller classic
-// bitmap font instead).
-constexpr int TITLE_PX_LARGE = 56, TITLE_PX_SMALL = 29;
-constexpr int TILE_VALUE_PX_LARGE = 42, TILE_VALUE_PX_SMALL = 22;
-constexpr int CHROME_PX_LARGE = 29, CHROME_PX_SMALL = 16;
+// How much of a stat/legend row's width the shared icon/keycap column
+// eats, as a multiple of that role's own font size -- the icon itself
+// plus a small gap. See the atlas's "strong" -> "stro" clipping bug this
+// guards against (design spec's Sizing engine section).
+constexpr float ICON_COL_RESERVE_FACTOR = 1.65f;
+// Line box height as a multiple of font size -- enough headroom for
+// ascenders/descenders without wasting space.
+constexpr float LINE_HEIGHT = 1.3f;
 
-struct LayoutMetrics {
-    int lineH;      // provisioning: body-line spacing (classic Font4)
-    int smallLineH; // provisioning: caption-line spacing (classic Font4)
-    int bodySize;   // provisioning setTextSize(); also selects the status
-                    // screen's font tier (2 = large, 1 = small)
-    int smallSize;  // provisioning setTextSize() for captions
+enum class SizeRole : uint8_t { Title, Stat, Chrome };
 
-    // Status screen (ui.cpp): one adaptive vertical stack, used for every
-    // panel size/orientation.
-    int titleH, tileValueH, chromeH, chromeLineH;
-    int cx;                                 // page horizontal center
-    int marginX;                            // shared left/right margin
-    int titleY;                             // title + badge mid-anchor y
-    int ruleY;                              // header divider line y
-    int tileTop, tileH, tileW, tileGap;     // tile box geometry
-    int tile0Cx, tile1Cx, tile2Cx;          // tile center x positions
-    int tileIconCy, tileValueY, tileLabelY; // vertical anchors inside a tile
-    int captionY;
-    int qrScale;
-    int qrCy;
-    int scanY, urlY, legend0Y, legend1Y, legend2Y;
-
-    // Provisioning screen anchors (net.cpp) -- unchanged by this rework.
-    int provTitleY, provStep1Y, provQr1Y, provJoinManualY, provStep2Y,
-        provQrHintY, provQr2Y, provStep3Y, provChangeY;
-    int provQrScale;
-};
-
-// 4/3 headroom: enough gap for ascenders/descenders between stacked lines
-// at this font's native size, without wasting space on panels where every
-// pixel of vertical room matters (see EE04/EE05 below).
-inline int lineHeightFor(int textSize) {
-    return FONT4_NATIVE_PX * textSize * 4 / 3;
+inline const int *ladderFor(SizeRole role, int *countOut) {
+    switch (role) {
+        case SizeRole::Title: *countOut = TITLE_SIZES_N; return TITLE_SIZES;
+        case SizeRole::Stat:  *countOut = STAT_SIZES_N;  return STAT_SIZES;
+        default:              *countOut = CHROME_SIZES_N; return CHROME_SIZES;
+    }
 }
 
-inline LayoutMetrics computeLayout(int width, int height) {
-    LayoutMetrics m{};
-    const int shortSide = width < height ? width : height;
-    // Below ~600px, a giant body font (2x) leaves no room for this screen's
-    // content no matter how tight the spacing gets -- drop to the smaller
-    // tier instead.
-    const bool large = shortSide >= 600;
-    m.bodySize = large ? 2 : 1;
-    m.smallSize = 1;
-    m.lineH = lineHeightFor(m.bodySize);
-    m.smallLineH = lineHeightFor(m.smallSize);
+// Real text-width measurement, injected so this header stays Arduino-
+// free. Returns the pixel width `text` would render at, for `role`'s
+// font at `sizePx` (one of that role's ladder rungs). Firmware wires
+// this to epaper.textWidth() against the real font object (see
+// realTextWidth() in ui.cpp); native tests use a deterministic fake.
+using TextWidthFn = int (*)(SizeRole role, int sizePx, const char *text);
 
-    m.titleH = large ? TITLE_PX_LARGE : TITLE_PX_SMALL;
-    m.tileValueH = large ? TILE_VALUE_PX_LARGE : TILE_VALUE_PX_SMALL;
-    m.chromeH = large ? CHROME_PX_LARGE : CHROME_PX_SMALL;
-    m.chromeLineH = m.chromeH * 4 / 3;
-    const int gap = m.titleH / 6;
+struct FitItem { const char *text; int widthPx; };
 
-    m.cx = width / 2;
-    m.marginX = width / 12;
+// Largest ladder rung at which every item fits its own available width
+// -- per-item width (not one flat width) matters because stat/legend
+// lines share an icon/keycap column that eats into their row. Falls
+// back to the smallest rung if nothing fits (caller may still find
+// individual lines tight at that floor -- flagged, not hidden).
+inline int fitSize(SizeRole role, const FitItem *items, int count, TextWidthFn measure) {
+    int ladderCount;
+    const int *ladder = ladderFor(role, &ladderCount);
+    for (int i = 0; i < ladderCount; i++) {
+        int size = ladder[i];
+        bool fits = true;
+        for (int j = 0; j < count; j++) {
+            if (measure(role, size, items[j].text) > items[j].widthPx) { fits = false; break; }
+        }
+        if (fits) return size;
+    }
+    return ladder[ladderCount - 1];
+}
 
-    // ---- Tile row geometry: fixed once the font tier is known ----
-    const int tilePad = m.chromeH / 3;
-    const int iconSize = m.tileValueH;
-    m.tileH = 2 * tilePad + iconSize + gap / 3 + m.tileValueH + gap / 3 + m.chromeH;
-    const int rowW = width - 2 * m.marginX;
-    m.tileGap = rowW / 20;
-    m.tileW = (rowW - 2 * m.tileGap) / 3;
-    m.tile0Cx = m.marginX + m.tileW / 2;
-    m.tile1Cx = m.tile0Cx + m.tileW + m.tileGap;
-    m.tile2Cx = m.tile1Cx + m.tileW + m.tileGap;
+struct RoleSizes { int title, stat, chrome; };
 
-    // ---- Stack the whole screen top-to-bottom, capping the QR at a sane
-    // size instead of growing it to fill whatever's left, and pushing the
-    // freed space to the top/bottom margins -- same principle as the
-    // provisioning screen below, so a physical picture-frame mat doesn't
-    // clip content at the edges ----
-    const int ruleGap = gap;          // header -> rule
-    const int tileGapAbove = 2 * gap; // rule -> tile row
-    const int captionGap = gap;       // tile row -> caption
-    const int qrGap = m.lineH / 3;
+// Shrinks exactly one role by one ladder rung, in fixed priority order:
+// chrome (least prominent) first, then stat, title last -- so the title
+// can never end up smaller than the board line under it just because it
+// started from a bigger ladder rung. Returns false once every role is
+// already at its ladder's floor (nothing left to shrink).
+inline bool shrinkOneStep(RoleSizes &sizes) {
+    int chromeCount, statCount, titleCount;
+    const int *chromeLadder = ladderFor(SizeRole::Chrome, &chromeCount);
+    const int *statLadder = ladderFor(SizeRole::Stat, &statCount);
+    const int *titleLadder = ladderFor(SizeRole::Title, &titleCount);
 
-    const int aboveQrH = m.titleH + ruleGap + tileGapAbove + m.tileH +
-                        captionGap + m.chromeLineH;
-    const int belowQrH = 5 * m.chromeLineH; // scan + url + 3 legend lines
-    const int fixedH = aboveQrH + 2 * qrGap + belowQrH;
+    for (int i = 0; i < chromeCount - 1; i++) {
+        if (chromeLadder[i] == sizes.chrome) { sizes.chrome = chromeLadder[i + 1]; return true; }
+    }
+    for (int i = 0; i < statCount - 1; i++) {
+        if (statLadder[i] == sizes.stat) { sizes.stat = statLadder[i + 1]; return true; }
+    }
+    for (int i = 0; i < titleCount - 1; i++) {
+        if (titleLadder[i] == sizes.title) { sizes.title = titleLadder[i + 1]; return true; }
+    }
+    return false;
+}
 
-    const int naturalQrBudget = height > fixedH ? height - fixedH : 0;
-    int scale = 4;
-    while (scale > 1 && naturalQrBudget / QR_MODULES_WITH_QUIET_ZONE < scale)
-        scale--;
-    m.qrScale = scale;
-    const int qrPx = QR_MODULES_WITH_QUIET_ZONE * scale;
-    const int slack = naturalQrBudget > qrPx ? naturalQrBudget - qrPx : 0;
-    const int margin = slack / 2;
+// ---- QR geometry: matches the firmware's ricmoo/QRCode usage exactly --
+// fixed version 4 (33x33 modules), a 4-module quiet zone on each side,
+// scaled 1-4px/module. QR_MIN_SCALE is the guaranteed-scannable floor: a
+// QR rendered smaller isn't degraded, it's useless (nobody can scan it),
+// so "small but present" is worse than "absent, URL shown as text
+// instead" -- a starting assumption (see the design spec's open
+// questions), not a measured number.
+constexpr int QR_MODULES = 33;
+constexpr int QR_QUIET_MODULES = 4;
+constexpr int QR_TOTAL_MODULES = QR_MODULES + 2 * QR_QUIET_MODULES; // 41
+constexpr int QR_MIN_SCALE = 2;
 
-    m.titleY = margin + m.titleH / 2;
-    m.ruleY = m.titleY + m.titleH / 2 + ruleGap;
-    m.tileTop = m.ruleY + tileGapAbove;
-    m.tileIconCy = m.tileTop + tilePad + iconSize / 2;
-    m.tileValueY = m.tileTop + tilePad + iconSize + gap / 3 + m.tileValueH / 2;
-    m.tileLabelY = m.tileValueY + m.tileValueH / 2 + gap / 3 + m.chromeH / 2;
-    m.captionY = m.tileTop + m.tileH + captionGap;
-    m.qrCy = m.captionY + m.chromeLineH / 2 + qrGap + qrPx / 2;
-    m.scanY = m.qrCy + qrPx / 2 + qrGap;
-    m.urlY = m.scanY + m.chromeLineH;
-    m.legend0Y = m.urlY + m.chromeLineH;
-    m.legend1Y = m.legend0Y + m.chromeLineH;
-    m.legend2Y = m.legend1Y + m.chromeLineH;
+// ---- Grid: everything is grouped into four zones read top to bottom
+// (header -> status -> action -> legend). Spacing is a small set of
+// named multiples of one grid unit (the chrome size, the smallest text
+// on the screen) instead of a different ad-hoc ratio per gap.
+constexpr float GRID_OUTER_MARGIN = 0.8f; // top/bottom margin, x chrome size
+constexpr float GRID_SECTION_GAP = 1.5f;  // gap between zones, x chrome size
+constexpr float GRID_QR_GAP = 0.6f;       // gap above/below the QR, x chrome size
 
-    // ---- Provisioning screen (net.cpp): 4 body lines + 3 caption lines of
-    // text, plus 2 QR codes, stacked top-down. Pick the largest QR scale
-    // (capped at 4, matching the original fixed size on large panels) that
-    // still lets everything fit within the panel height, then center the
-    // whole block vertically the same way as the status screen above.
-    // Unchanged by this rework. ----
-    const int textTotal = 4 * m.lineH + 3 * m.smallLineH;
-    int pscale = 4;
-    while (pscale > 1 &&
-           textTotal + 2 * QR_MODULES_WITH_QUIET_ZONE * pscale + m.lineH > height)
-        pscale--;
-    m.provQrScale = pscale;
-    const int provQrPx = QR_MODULES_WITH_QUIET_ZONE * pscale;
-    const int totalNeeded = textTotal + 2 * provQrPx + m.lineH;
-    const int provSlack = height > totalNeeded ? height - totalNeeded : 0;
-    const int provMargin = provSlack / 2;
+// Which zones this content has (statCount/legendCount == 0 means that
+// zone doesn't exist) -- used by computeFit's height model so it can't
+// disagree with the renderer about how many section gaps exist.
+struct ContentShape {
+    int statCount;
+    bool hasCaption, hasQr, hasScan, hasUrl;
+    int legendCount;
+};
 
-    int y = provMargin + m.lineH / 2;
-    m.provTitleY = y;              y += m.lineH;
-    m.provStep1Y = y;              y += m.lineH;
-    m.provQr1Y = y + provQrPx / 2; y += provQrPx + m.lineH / 2;
-    m.provJoinManualY = y;         y += m.smallLineH;
-    m.provStep2Y = y;              y += m.lineH;
-    m.provQrHintY = y;             y += m.smallLineH;
-    m.provQr2Y = y + provQrPx / 2; y += provQrPx + m.lineH / 2;
-    m.provStep3Y = y;              y += m.lineH;
-    m.provChangeY = y;
-    return m;
+struct FitResult {
+    float fixedPx;   // everything except the QR
+    bool hasQr;
+    int qrScale;      // 0 if no QR
+    int qrPx;
+    float qrGapPx;
+    bool qrTight;     // true if qrPx > rowW, or qrScale < QR_MIN_SCALE
+    float totalPx;
+};
+
+// Stacked height of everything except the QR, plus (if present) the QR
+// itself sized to fill whatever vertical room is left -- never scaled
+// below 1px/module, same as the real firmware would draw it even when
+// that means it doesn't fully fit (flagged via qrTight, not hidden).
+inline FitResult computeFit(const ContentShape &shape, const RoleSizes &sizes, int panelH, int rowW) {
+    const float unit = (float)sizes.chrome;
+    int zoneCount = 1; // header always present
+    if (shape.statCount > 0) zoneCount++;
+    const bool hasAction = shape.hasCaption || shape.hasQr || shape.hasScan || shape.hasUrl;
+    if (hasAction) zoneCount++;
+    if (shape.legendCount > 0) zoneCount++;
+
+    float fixed = 2.0f * unit * GRID_OUTER_MARGIN;
+    fixed += (zoneCount - 1) * unit * GRID_SECTION_GAP;
+    fixed += sizes.title * LINE_HEIGHT + sizes.chrome * LINE_HEIGHT; // header: title + board lines
+    fixed += shape.statCount * sizes.stat * LINE_HEIGHT;
+    if (shape.hasCaption) fixed += sizes.chrome * LINE_HEIGHT;
+    if (shape.hasScan) fixed += sizes.chrome * LINE_HEIGHT;
+    if (shape.hasUrl) fixed += sizes.chrome * LINE_HEIGHT;
+    fixed += shape.legendCount * sizes.chrome * LINE_HEIGHT;
+    fixed *= 1.03f; // headroom for rounding across this many terms
+
+    FitResult r{};
+    r.fixedPx = fixed;
+    r.hasQr = shape.hasQr;
+    if (shape.hasQr) {
+        const float qrGap = unit * GRID_QR_GAP;
+        const float budget = panelH - fixed - 2 * qrGap;
+        int scale = 4;
+        // Constrained by height (does the vertical budget fit scale*41
+        // tall) AND width (does the panel's own row fit scale*41 wide) --
+        // missing the width half of this let a QR pick a scale that
+        // towered over a narrow panel's own row.
+        while (scale > 1 && (budget / QR_TOTAL_MODULES < scale || QR_TOTAL_MODULES * scale > rowW))
+            scale--;
+        r.qrScale = scale;
+        r.qrPx = QR_TOTAL_MODULES * scale;
+        r.qrGapPx = qrGap;
+        r.qrTight = (r.qrPx > rowW) || (r.qrScale < QR_MIN_SCALE);
+        r.totalPx = fixed + 2 * qrGap + r.qrPx;
+    } else {
+        r.qrScale = 0; r.qrPx = 0; r.qrGapPx = 0; r.qrTight = false;
+        r.totalPx = fixed;
+    }
+    return r;
+}
+
+// ---- Content reduction cascade: ordered least-essential-first. A
+// screen starts at level 0 (full content) and steps through these until
+// the content fits at a legible size (see status_content.h's
+// fitScreen()). Fixed order, cumulative -- level N includes every
+// reduction from levels < N too.
+enum class LegendMode : uint8_t { Full, Combined, None };
+enum class CaptionMode : uint8_t { Full, Short, None };
+
+struct ContentConfig {
+    LegendMode legendMode;
+    CaptionMode captionMode;
+    bool showUrl;
+    bool showNextStat;
+    bool showVersion;
+    bool showScan;
+    bool statDetail;
+    bool showQr;
+};
+
+constexpr int REDUCTION_LEVELS = 10;
+
+inline ContentConfig configForLevel(int level) {
+    ContentConfig cfg{};
+    cfg.legendMode = LegendMode::Full;
+    cfg.captionMode = CaptionMode::Full;
+    cfg.showUrl = true;
+    cfg.showNextStat = true;
+    cfg.showVersion = true;
+    cfg.showScan = true;
+    cfg.statDetail = true;
+    cfg.showQr = true;
+
+    if (level > 0) cfg.legendMode = LegendMode::Combined;
+    if (level > 1) cfg.legendMode = LegendMode::None;
+    if (level > 2) cfg.statDetail = false;
+    if (level > 3) cfg.captionMode = CaptionMode::Short;
+    if (level > 4) cfg.showUrl = false;
+    if (level > 5) cfg.showNextStat = false;
+    if (level > 6) cfg.showVersion = false;
+    if (level > 7) cfg.captionMode = CaptionMode::None;
+    if (level > 8) cfg.showScan = false;
+    if (level > 9) cfg.showQr = false;
+    return cfg;
 }

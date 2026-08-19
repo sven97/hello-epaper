@@ -11,6 +11,27 @@ EPaper epaper;
 
 void applyOrientation() { epaper.setRotation(settings.rotation); }
 
+PortraitScope::PortraitScope() {
+    // Rotation 0 is landscape-shaped on a native-landscape panel, so
+    // rotation 1 (90 deg) is the portrait one there; on a native-portrait
+    // panel rotation 0 already is portrait.
+    epaper.setRotation(PANEL_NATIVE_LANDSCAPE ? 1 : 0);
+}
+PortraitScope::~PortraitScope() { applyOrientation(); }
+
+void drawStatusIcon(const uint8_t *bitmap, int x, int y, uint32_t fgColor) {
+    epaper.drawBitmap(x, y, bitmap, ICON_W, ICON_H, fgColor);
+}
+
+void drawKeycap(const char *digit, int cx, int cy, int sizePx, uint32_t fgColor) {
+    const int half = sizePx / 2;
+    epaper.drawRoundRect(cx - half, cy - half, sizePx, sizePx, sizePx / 6, fgColor);
+    epaper.setTextDatum(MC_DATUM);
+    epaper.setTextColor(fgColor, TFT_WHITE);
+    epaper.setTextSize(1);
+    epaper.drawString(digit, cx, cy, 2); // classic Font2, legible at any legend size
+}
+
 void initPanelColorMode() {
 #ifdef USE_MUTIGRAY_EPAPER
     epaper.initGrayMode(16); // must be 4 or 16 literally; GRAY_LEVEL16 == 16
@@ -43,81 +64,6 @@ uint32_t batteryColorForLevel(BatteryLevel level) {
     (void)level;
     return TFT_BLACK;
 #endif
-}
-
-uint32_t chargingBoltColor() {
-#if defined(USE_COLORFULL_EPAPER)
-    return TFT_BLUE;
-#else
-    return TFT_BLACK;
-#endif
-}
-
-// Classic battery glyph: rounded-rect outline + right-side nub, inner fill
-// proportional to pct. Outline is always black regardless of fill color
-// (readability); fillColor should already be board-appropriate (see
-// batteryColorForLevel above).
-void drawBatteryIcon(int cx, int cy, int r, int pct, uint32_t fillColor, bool charging) {
-    const int bodyW = r * 3, bodyH = r * 2;
-    const int nubW = r / 2, nubH = r;
-    const int x0 = cx - (bodyW + nubW) / 2;
-    const int y0 = cy - bodyH / 2;
-    epaper.drawRoundRect(x0, y0, bodyW, bodyH, r / 4, TFT_BLACK);
-    epaper.fillRect(x0 + bodyW, cy - nubH / 2, nubW, nubH, TFT_BLACK);
-    const int pad = r / 5;
-    const int innerX = x0 + pad, innerY = y0 + pad;
-    const int innerW = bodyW - 2 * pad, innerH = bodyH - 2 * pad;
-    epaper.fillRect(innerX, innerY, innerW, innerH, TFT_WHITE);
-    const int clamped = pct < 0 ? 0 : (pct > 100 ? 100 : pct);
-    const int filledW = innerW * clamped / 100;
-    if (filledW > 0) epaper.fillRect(innerX, innerY, filledW, innerH, fillColor);
-    if (charging) {
-        const uint32_t bolt = chargingBoltColor();
-        const int bx = cx + bodyW / 2 - r / 4;
-        epaper.fillTriangle(bx, cy - r, bx - r / 2, cy, bx, cy, bolt);
-        epaper.fillTriangle(bx, cy, bx + r / 2, cy, bx, cy + r, bolt);
-    }
-}
-
-// Classic Wi-Fi glyph (dot + up to 2 upward-opening arcs). Built from
-// fillCircle "donut" cuts (draw a filled disc, then a smaller white disc
-// inside it to leave a ring) instead of drawArc(), which avoids depending
-// on this library's arc-angle convention -- masking the lower half of each
-// ring with one final white fillRect converts the full rings into the
-// classic upward-opening arcs. Rings are drawn outermost-first so the
-// always-drawn center dot is painted last and never gets erased by a
-// later "cut".
-void drawWifiIcon(int cx, int baseY, int r, WifiStrength level) {
-    const int dotR = r / 5;
-    const int ring1 = r * 3 / 5, ring1In = ring1 - r / 6;
-    const int ring2 = r,        ring2In = ring2 - r / 6;
-    if (level == WifiStrength::Strong) {
-        epaper.fillCircle(cx, baseY, ring2, TFT_BLACK);
-        epaper.fillCircle(cx, baseY, ring2In, TFT_WHITE);
-    }
-    if (level != WifiStrength::Weak) {
-        epaper.fillCircle(cx, baseY, ring1, TFT_BLACK);
-        epaper.fillCircle(cx, baseY, ring1In, TFT_WHITE);
-    }
-    epaper.fillCircle(cx, baseY, dotR, TFT_BLACK);
-    epaper.fillRect(cx - r - 1, baseY, 2 * (r + 1), r + 2, TFT_WHITE);
-}
-
-// Clock face (next scheduled fetch), or a map-pin marker when the current
-// picture is pinned (KEY3) -- neither hand position is a real clock, both
-// are purely decorative glyphs paired with the tile's own time/"pinned"
-// text.
-void drawNextPhotoIcon(int cx, int cy, int r, bool pinned) {
-    if (pinned) {
-        const int headR = r * 2 / 3;
-        epaper.fillCircle(cx, cy - r / 3, headR, TFT_BLACK);
-        epaper.fillCircle(cx, cy - r / 3, headR - r / 4, TFT_WHITE);
-        epaper.fillTriangle(cx - headR / 2, cy, cx + headR / 2, cy, cx, cy + r, TFT_BLACK);
-        return;
-    }
-    epaper.drawCircle(cx, cy, r, TFT_BLACK);
-    epaper.drawLine(cx, cy, cx, cy - r * 3 / 5, TFT_BLACK);
-    epaper.drawLine(cx, cy, cx + r * 2 / 5, cy + r / 5, TFT_BLACK);
 }
 
 // Panel color/gray index (drawPixel stores it directly, 1 or 4 bpp

@@ -1,5 +1,6 @@
 #pragma once
 #include <TFT_eSPI.h> // Seeed_GFX; provides EPaper for the selected combo
+#include "icons.h"
 #include "logic/battery_curve.h"
 #include "logic/wifi_strength.h"
 
@@ -19,35 +20,50 @@ uint16_t truePixelColor(int x, int y);
 // EE02's native panel is portrait (1200x1600), but EE03/EE04/EE05's native
 // panels are landscape (e.g. 800x480) -- rotation 0 does NOT universally
 // mean "portrait", so the rotation dropdown's labels must be computed from
-// this per board, not hardcoded (see portal.cpp's rotOptions()).
+// this per board, not hardcoded (see portal.cpp's rotOptions()), and the
+// unified status screen's portrait-forcing (PortraitScope below) uses it
+// to pick the right rotation value too.
 constexpr bool PANEL_NATIVE_LANDSCAPE = TFT_WIDTH > TFT_HEIGHT;
 
 // Apply the configured orientation (settings.rotation -> setRotation).
 // Call once after epaper.begin(), before any drawing.
 void applyOrientation();
 
+// RAII scope guard for the unified status/onboarding/error screen (see
+// docs/superpowers/specs/2026-08-18-unified-status-screen-design.md):
+// forces portrait regardless of settings.rotation for its lifetime, then
+// restores the configured orientation on scope exit. Construct one
+// around the draw + epaper.update() call for that screen -- restoring
+// only after update() matters, since the sprite's own dimensions (and
+// therefore what update() pushes) follow whatever rotation is active
+// while it's drawn.
+struct PortraitScope {
+    PortraitScope();
+    ~PortraitScope();
+};
+
 // Version-4 (33x33) QR centered at (cx, cy), scale px per module, with a
 // 4-module white quiet zone. Draws into the sprite only. Payload must fit
 // version 4 at ECC_LOW (78 bytes).
 void drawQrCode(const String &text, int cx, int cy, int scale);
 
-// Status-screen dashboard icons (battery/Wi-Fi/next-photo tiles). All
-// built from fillRect/fillCircle/fillTriangle primitives -- no image
-// assets, same approach drawQrCode already uses. Each is centered at
-// (cx, cy) with r setting overall icon scale.
-void drawBatteryIcon(int cx, int cy, int r, int pct, uint32_t fillColor, bool charging);
-void drawWifiIcon(int cx, int baseY, int r, WifiStrength level);
-void drawNextPhotoIcon(int cx, int cy, int r, bool pinned);
+// Draws a status-screen icon (see icons.h, always ICON_W x ICON_H) with
+// its top-left corner at (x, y). One fixed size regardless of the
+// surrounding text's font tier -- callers position by the sizing
+// engine's icon-column width, not by icon size.
+void drawStatusIcon(const uint8_t *bitmap, int x, int y, uint32_t fgColor);
+
+// Legend zone's small square keycap glyph ("1"/"2"/"3") -- a drawn
+// rounded box + centered digit (classic Font2), not a bitmap: the digit
+// itself is text, unlike battery/Wi-Fi/refresh which have no text
+// equivalent.
+void drawKeycap(const char *digit, int cx, int cy, int sizePx, uint32_t fgColor);
 
 // Board-appropriate battery fill color: functional green/yellow/red on
 // 6-color Spectra panels (EE02), solid black everywhere else -- the
 // percentage number and bar fill length already carry the information on
 // grayscale/mono panels, so no data is lost by dropping the color cue.
 uint32_t batteryColorForLevel(BatteryLevel level);
-
-// Board-appropriate charging-indicator color: blue on 6-color Spectra
-// panels, black everywhere else.
-uint32_t chargingBoltColor();
 
 // Decode a baseline JPEG into PSRAM, Floyd-Steinberg dither it to the
 // panel's palette, and write it into the sprite (no update()).
@@ -58,5 +74,8 @@ bool renderJpeg(uint8_t *buf, size_t len);
 // Call once after epaper.begin() / applyOrientation(), before drawing.
 void initPanelColorMode();
 
-// Full-panel error screen (calls update()).
+// Full-panel error screen. Gathers live battery/Wi-Fi/next-fetch state
+// (see ui.h's gatherLiveContent()) plus `msg`, then draws the unified
+// frame's Error state and calls update(). Only drawn when someone is
+// watching (button-initiated actions) -- unattended wakes keep the photo.
 void showError(const String &msg);

@@ -1,7 +1,6 @@
 #pragma once
 #include <TFT_eSPI.h> // Seeed_GFX; provides EPaper for the selected combo
 #include "icons.h"
-#include "logic/battery_curve.h"
 
 extern EPaper epaper;
 
@@ -57,12 +56,6 @@ void drawStatusIcon(const uint8_t *bitmap, int x, int y, uint32_t fgColor);
 // itself is text, unlike battery/Wi-Fi/refresh which have no text
 // equivalent.
 void drawKeycap(const char *digit, int cx, int cy, int sizePx, uint32_t fgColor);
-
-// Board-appropriate battery fill color: functional green/yellow/red on
-// 6-color Spectra panels (EE02), solid black everywhere else -- the
-// percentage number and bar fill length already carry the information on
-// grayscale/mono panels, so no data is lost by dropping the color cue.
-uint32_t batteryColorForLevel(BatteryLevel level);
 
 // Decode a baseline JPEG into PSRAM, Floyd-Steinberg dither it to the
 // panel's palette, and write it into the sprite (no update()).

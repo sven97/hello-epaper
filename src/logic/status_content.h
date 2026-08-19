@@ -10,7 +10,7 @@
 
 enum class ScreenState : uint8_t { Normal, Onboarding, Error };
 enum class LineKind : uint8_t { Title, Board, Stat, Caption, Scan, Url, Legend };
-enum class StatIcon : uint8_t { None, Battery, Wifi, Refresh };
+enum class StatIcon : uint8_t { None, Battery, Wifi, Next };
 
 constexpr int MAX_CONTENT_LINES = 12; // header(2) + stat(<=3) + caption(<=1)
                                        // + scan(<=1) + url(<=1) + legend(<=3)
@@ -20,6 +20,9 @@ struct ContentLine {
     SizeRole sizeRole;   // which ladder/measurement role this line uses
     StatIcon icon;       // Stat lines only; StatIcon::None otherwise
     int batteryPct;      // meaningful only when icon == StatIcon::Battery
+    char wifiBase[16];   // meaningful only when icon == StatIcon::Wifi --
+                          // raw category ("strong"/"fair"/"weak"/"--"/"failed"),
+                          // undecorated by the SSID detail suffix in `text`
     char keyLabel[4];    // Legend lines only: "1"/"2"/"3", "" for combined
     char text[64];
 };
@@ -43,6 +46,7 @@ inline void setLine(ContentLine &l, LineKind kind, SizeRole role, const char *te
     l.sizeRole = role;
     l.icon = StatIcon::None;
     l.batteryPct = 0;
+    l.wifiBase[0] = '\0';
     l.keyLabel[0] = '\0';
     strncpy(l.text, text, sizeof(l.text) - 1);
     l.text[sizeof(l.text) - 1] = '\0';
@@ -93,6 +97,8 @@ inline int buildLines(ScreenState state, const ContentConfig &cfg,
             snprintf(buf, sizeof(buf), "%s", content.wifiBase);
         setLine(out[n], LineKind::Stat, SizeRole::Stat, buf);
         out[n].icon = StatIcon::Wifi;
+        strncpy(out[n].wifiBase, content.wifiBase, sizeof(out[n].wifiBase) - 1);
+        out[n].wifiBase[sizeof(out[n].wifiBase) - 1] = '\0';
         n++;
     }
     if (cfg.showNextStat && n < maxOut) {
@@ -102,7 +108,7 @@ inline int buildLines(ScreenState state, const ContentConfig &cfg,
         else
             snprintf(buf, sizeof(buf), "%s", content.nextBase);
         setLine(out[n], LineKind::Stat, SizeRole::Stat, buf);
-        out[n].icon = StatIcon::Refresh;
+        out[n].icon = StatIcon::Next;
         n++;
     }
 

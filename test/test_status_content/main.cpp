@@ -139,6 +139,23 @@ void test_fitScreen_qr_never_below_floor_unless_dropped() {
     if (fit.qrScale > 0) TEST_ASSERT_TRUE(fit.qrScale >= QR_MIN_SCALE);
 }
 
+// A short stat value or short URL can independently pick a large ladder
+// rung while a long title gets forced small by the narrow row -- the
+// width-only fit alone doesn't guarantee title > stat > chrome. Checked
+// on a 480x800 portrait panel (EE04/EE05-shaped) across every screen
+// state, since the reduction cascade differs per state.
+void test_fitScreen_hierarchy_holds_on_480x800_panel() {
+    ScreenContent c = normalContent();
+    strncpy(c.errorMsg, "image server said HTTP 404", sizeof(c.errorMsg) - 1);
+    ScreenState states[] = {ScreenState::Normal, ScreenState::Onboarding, ScreenState::Error};
+    for (int i = 0; i < 3; i++) {
+        ScreenFit fit = fitScreen(states[i], c, "EE04", "abc123", "EE04-Setup",
+                                  480, 800, fakeMeasure);
+        TEST_ASSERT_TRUE(fit.sizes.chrome <= fit.sizes.stat);
+        TEST_ASSERT_TRUE(fit.sizes.stat <= fit.sizes.title);
+    }
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_buildLines_normal_full_content);
@@ -149,5 +166,6 @@ int main() {
     RUN_TEST(test_fitScreen_ee02_portrait_fits_at_level_zero);
     RUN_TEST(test_fitScreen_tiny_panel_terminates_and_keeps_header);
     RUN_TEST(test_fitScreen_qr_never_below_floor_unless_dropped);
+    RUN_TEST(test_fitScreen_hierarchy_holds_on_480x800_panel);
     return UNITY_END();
 }

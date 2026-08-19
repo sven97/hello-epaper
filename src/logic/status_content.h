@@ -189,6 +189,24 @@ inline bool hasIconColumn(const ContentLine &l) {
     return l.kind == LineKind::Stat || (l.kind == LineKind::Legend && l.keyLabel[0] != '\0');
 }
 
+// Largest rung in `role`'s own ladder that is <= `cap` -- used to clamp
+// one role's size down to another role's without landing on a value that
+// isn't actually one of the role's ladder rungs (TITLE_SIZES/STAT_SIZES/
+// CHROME_SIZES don't share identical rungs, so a raw numeric min() could
+// produce a size fontFor() in ui.cpp doesn't recognize, falling through
+// to its `default:` case). Falls back to the ladder's own floor (its
+// smallest rung) if even that doesn't satisfy the cap -- still the
+// closest a real ladder rung can get.
+inline int clampToLadder(SizeRole role, int size, int cap) {
+    if (size <= cap) return size;
+    int count;
+    const int *ladder = ladderFor(role, &count);
+    for (int i = 0; i < count; i++) {
+        if (ladder[i] <= cap) return ladder[i];
+    }
+    return ladder[count - 1];
+}
+
 // The fitting algorithm: at each reduction level, build this state's
 // lines, fit title/stat/chrome each to the largest real size that fits
 // every line sharing that role (with a two-pass icon-column reserve for
@@ -259,6 +277,16 @@ inline ScreenFit fitScreen(ScreenState state, const ScreenContent &content,
             : CHROME_SIZES[CHROME_SIZES_N - 1];
 
         sizes = RoleSizes{titleSize, statSize, chromeSize};
+
+        // Enforce the hierarchy the width-only fit alone doesn't guarantee: title
+        // is always the largest role, chrome the smallest -- "hierarchy is a rule
+        // to hold, not an accident of which role happened to be biggest" (design
+        // spec). Only clamps DOWN (never grows a role past what fitSize already
+        // proved fits its own width), so this can't reintroduce a width overflow.
+        if (sizes.stat > sizes.title)
+            sizes.stat = clampToLadder(SizeRole::Stat, sizes.stat, sizes.title);
+        if (sizes.chrome > sizes.stat)
+            sizes.chrome = clampToLadder(SizeRole::Chrome, sizes.chrome, sizes.stat);
 
         // ---- Shape + height-aware shrink pass.
         ContentShape shape{};

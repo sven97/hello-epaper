@@ -102,7 +102,7 @@ static void configModeCallback(WiFiManager *wm) {
     showProvisioningScreenOnce();
 }
 
-bool connectWifi(bool allowPortal) {
+bool connectWifi(bool allowPortal, bool forceRadioReset) {
     provisioningScreenShown = false; // each attempt may open a fresh portal
     // Both this firmware's settings portal and WiFiManager's captive
     // portal bind port 80 — free ours in case provisioning must open.
@@ -115,6 +115,17 @@ bool connectWifi(bool allowPortal) {
     // now, before autoConnect(), so the portal web server isn't blocked
     // behind the ~30 s panel draw when the user tries to reach it.
     if (allowPortal && !wm.getWiFiIsSaved()) showProvisioningScreenOnce();
+    if (forceRadioReset) {
+        // A previous attempt this outage already failed against a radio
+        // that was never reset -- power-cycle it before retrying, in case
+        // something (e.g. a stale cached BSSID/channel hint) is stuck
+        // rather than the saved credentials themselves being wrong.
+        // Credentials are untouched -- only the radio driver state.
+        devLog.println("wifi: power-cycling radio before retry...");
+        WiFi.mode(WIFI_OFF);
+        delay(100);
+        WiFi.mode(WIFI_STA);
+    }
     devLog.println("connecting (saved credentials, or captive portal)...");
     bool ok = wm.autoConnect(AP_NAME);
     if (ok) {

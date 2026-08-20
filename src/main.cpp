@@ -8,6 +8,7 @@
 #include "display.h"
 #include "devlog.h"
 #include "logic/quiet_hours.h"
+#include "logic/stuck_error.h"
 #include "net.h"
 #include "photocache.h"
 #include "portal.h"
@@ -21,6 +22,8 @@ bool held = false;
 
 RTC_DATA_ATTR uint32_t bootCount = 0;
 RTC_DATA_ATTR int32_t lastVbatMv = -1; // survives deep sleep, not reset/flash
+RTC_DATA_ATTR uint32_t fetchFailStreak = 0; // consecutive full-cycle failures
+RTC_DATA_ATTR bool stuckErrorShown = false; // one-time flag per outage
 
 // Read the battery and compute the wake-to-wake delta (RTC-persisted).
 static int32_t readBatteryWithDelta(int32_t &deltaMv, bool &haveDelta) {
@@ -42,21 +45,50 @@ static int32_t readBatteryWithDelta(int32_t &deltaMv, bool &haveDelta) {
 // failure keep the current photo untouched, log, and let the next wake
 // retry. interactive=true (button presses, power-on, portal exits): draw
 // the error screen so the person standing there knows what happened.
+// Unattended-wake escalation: once the streak has failed long enough
+// (per settings.sleepSecs) that a transient outage can't explain it,
+// draw the error screen once so a stuck frame is discoverable by looking
+// at it, instead of only by noticing a stale photo days later. Never
+// called for interactive wakes -- those already show an error on every
+// single failure.
+static void maybeShowStuckError() {
+    if (!shouldShowStuckError(fetchFailStreak, settings.sleepSecs,
+                              stuckErrorShown))
+        return;
+    stuckErrorShown = true;
+    showError("Wi-Fi hasn't reconnected in over 6h - press KEY1 to check");
+}
+
 static void doFetchCycle(bool interactive) {
     setLed(LedMode::Heartbeat);
-    if (!connectWifi(interactive)) {
-        if (interactive) showError("Wi-Fi connection failed");
-        else devLog.println("wifi failed — keeping photo, retry next wake");
+    // Every retry after the first failure of a new outage forces a fresh
+    // radio state first -- see connectWifi()'s forceRadioReset.
+    bool forceRadioReset = fetchFailStreak > 0;
+    if (!connectWifi(interactive, forceRadioReset)) {
+        fetchFailStreak++;
+        if (interactive) {
+            showError("Wi-Fi connection failed");
+        } else {
+            devLog.println("wifi failed — keeping photo, retry next wake");
+            maybeShowStuckError();
+        }
         setLed(LedMode::Solid);
         return;
     }
     String err;
     if (!fetchImage(err)) {
-        if (interactive) showError(err);
-        else devLog.println("fetch failed (" + err + ") — keeping photo");
+        fetchFailStreak++;
+        if (interactive) {
+            showError(err);
+        } else {
+            devLog.println("fetch failed (" + err + ") — keeping photo");
+            maybeShowStuckError();
+        }
         setLed(LedMode::Solid);
         return;
     }
+    fetchFailStreak = 0;
+    stuckErrorShown = false;
     syncClock();
     recordFetchMetadata();
     devLog.println("updating panel (takes ~20-30 s)...");

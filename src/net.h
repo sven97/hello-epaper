@@ -31,11 +31,19 @@ void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
                       uint8_t &otaTrialBoots, uint8_t &otaTrialFetchFails,
                       int batteryPct, bool force = false);
 
-// Portal "Check for firmware update now": maybeRunOtaCheck() with the
-// cadence timer bypassed, against main.cpp's RTC state (via state.h).
-// Blocks for the manifest GET and, if a newer build exists, the download
-// + flash; reboots on success. Safe to call from an HTTP handler.
-void otaCheckNow();
+// Portal manual update, two steps.
+//
+// otaPeek(): step 1 — fetch + parse the manifest and compare, without
+// downloading or flashing. Fills `latestBuild` on UpToDate / Available.
+// Resets the auto cadence timer (a manual check is still a check).
+enum class OtaPeekResult { UpToDate, Available, Blocked, Unreachable };
+OtaPeekResult otaPeek(uint32_t &latestBuild);
+
+// otaInstallNow(): step 2 — re-validate against the manifest and, if a
+// newer build is still there, download + flash + reboot (cadence timer
+// bypassed; every other gate still applies). May not return. Safe to
+// call from an HTTP handler.
+void otaInstallNow();
 
 // Detect the UTC offset from the network's public IP, then NTP-sync.
 // Returns false if NTP never synced (offset may still be cached-stale).

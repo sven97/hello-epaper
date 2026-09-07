@@ -12,6 +12,8 @@ struct Settings {
     bool     tzAuto;         // true: ip-api detect; false: manual tzOff
     String   name;           // mDNS hostname, [a-z0-9-]{1,24}
     uint8_t  rotation;       // epaper.setRotation() arg, 0-3
+    bool     otaEnabled;     // auto firmware update on scheduled wakes
+    uint32_t otaCheckSecs;   // min interval between manifest checks
 };
 
 extern Settings settings;

@@ -93,17 +93,17 @@ static String rotOptions() {
 }
 
 // One-glance device state under the heading: battery, and when the next
-// photo lands (omitted before the first NTP sync — never show 1970 math).
+// image lands (omitted before the first NTP sync — never show 1970 math).
 static String statusLine() {
     String s = "battery " + String(batteryPercent(lastVbatMv)) + "%";
-    if (held) return s + " · pinned";
+    if (held) return s + " · paused";
     if (time(nullptr) > CLOCK_SANE_EPOCH) {
         time_t next = time(nullptr) + (time_t)plannedSleepSecs();
         struct tm t;
         localtime_r(&next, &t);
         char hm[8];
         strftime(hm, sizeof(hm), "%H:%M", &t);
-        s += " · next photo ";
+        s += " · next image ";
         s += hm;
     }
     return s;
@@ -121,10 +121,8 @@ static String htmlEscape(const String &s) {
     return out;
 }
 
-static String buildPage(const String &error) {
+static String buildPage() {
     String page = FPSTR(PORTAL_HTML);
-    page.replace("%ERROR%",
-                 error.isEmpty() ? "" : "<div class=\"msg\">" + error + "</div>");
     page.replace("%NAME%", settings.name);
     page.replace("%STATUS%", statusLine());
     page.replace("%SLEEP_OPTS%", sleepOptions(settings.sleepSecs));
@@ -145,134 +143,9 @@ static String buildPage(const String &error) {
     return page;
 }
 
-static void sendDone(const String &title, const String &body) {
-    String page = FPSTR(PORTAL_DONE_HTML);
-    page.replace("%TITLE%", title);
-    page.replace("%BODY%", body);
-    server.send(200, "text/html", page);
-}
-
 static void handleRoot() {
     lastActivityMs = millis();
-    server.send(200, "text/html", buildPage(""));
-}
-
-// Validate everything before writing anything: a rejected form must leave
-// NVS untouched.
-static void handleSave() {
-    lastActivityMs = millis();
-    uint32_t sleep = (uint32_t)server.arg("sleep").toInt();
-    String url = server.arg("url");
-    bool paused = server.hasArg("paused");
-    bool quietEn = server.hasArg("quiet_en");
-    int quietStart = server.arg("quiet_start").toInt();
-    int quietEnd = server.arg("quiet_end").toInt();
-    String tz = server.arg("tz");
-    String name = server.arg("name");
-    int rot = server.arg("rot").toInt();
-    bool otaEn = server.hasArg("ota_en");
-
-    String err;
-    if (!isValidSleepSecs(sleep)) err = "Invalid refresh interval.";
-    else if (!isValidImageUrl(url.c_str())) err = "Image URL must be http(s) and under 512 chars.";
-    else if (!isValidHour(quietStart) || !isValidHour(quietEnd)) err = "Invalid quiet hours.";
-    else if (quietEn && quietStart == quietEnd) err = "Quiet hours start and end must differ.";
-    else if (!isValidDeviceName(name.c_str())) err = "Name: 1-24 of a-z, 0-9, hyphen (not at the ends).";
-    else if (!isValidRotation(rot)) err = "Invalid orientation.";
-    else if (tz != "auto" && !isValidTzOffsetSec(tz.toInt())) err = "Invalid timezone offset.";
-    if (!err.isEmpty()) {
-        server.send(400, "text/html", buildPage(err));
-        return;
-    }
-
-    settings.sleepSecs = sleep;
-    settings.imageUrl = url;
-    settings.quietEnabled = quietEn;
-    settings.quietStartHour = (uint8_t)quietStart;
-    settings.quietEndHour = (uint8_t)quietEnd;
-    settings.name = name;
-    settings.rotation = (uint8_t)rot;
-    settings.otaEnabled = otaEn;
-    settings.tzAuto = (tz == "auto");
-    if (!settings.tzAuto) prefs.putLong("tzOff", tz.toInt());
-    saveSettings();
-    prefs.putBool("held", paused);
-    held = paused;
-
-    sendDone("Saved", "The frame is applying settings and fetching a picture — the panel takes ~30 s to refresh.<p class=\"note\">To open settings again later, press KEY1 on the frame.</p>");
-    result = PortalResult::Saved;
-    exitRequested = true;
-    devLog.println("portal: settings saved");
-}
-
-static void handleNewPic() {
-    lastActivityMs = millis();
-    sendDone("Fetching", "New picture on the way — the panel takes ~30 s to refresh.<p class=\"note\">To open settings again later, press KEY1 on the frame.</p>");
-    result = PortalResult::Saved;
-    exitRequested = true;
-    devLog.println("portal: new picture requested");
-}
-
-// Step 1: check only — never flashes. Renders the result, and on
-// "Available" an Install button that POSTs /action/installupdate.
-static void handleCheckUpdate() {
-    lastActivityMs = millis();
-    devLog.println("portal: manual firmware check");
-    uint32_t latest = 0;
-    switch (otaPeek(latest)) {
-    case OtaPeekResult::Available:
-        sendDone("Update available",
-                 "Build <b>" + String(latest) + "</b> is available (this frame "
-                 "is on build " + String((uint32_t)FW_BUILD_NUMBER) + ").<p>"
-                 "<form method=\"POST\" action=\"/action/installupdate\">"
-                 "<button class=\"primary\" type=\"submit\">Install build " +
-                 String(latest) + " now</button></form>"
-                 "<p class=\"note\">The frame downloads it, verifies it, and "
-                 "restarts (~30 s). If the new build won't run it rolls back on "
-                 "its own.</p>");
-        break;
-    case OtaPeekResult::UpToDate:
-        sendDone("Up to date",
-                 "This frame is on build " + String((uint32_t)FW_BUILD_NUMBER) +
-                 ", the latest published build.");
-        break;
-    case OtaPeekResult::Blocked:
-        sendDone("Can’t check now",
-                 "One of these is true: Auto-update is off (enable it and Save), "
-                 "the battery is below 40%, a previous update is still on trial, "
-                 "or this is a -dirty local build. See the "
-                 "<a href=\"/log\">log</a>.");
-        break;
-    case OtaPeekResult::Unreachable:
-        sendDone("Update server unreachable",
-                 "Couldn’t fetch the update manifest — check the frame’s internet "
-                 "connection and retry. See the <a href=\"/log\">log</a>.");
-        break;
-    }
-}
-
-// Step 2: install. Re-validates against the manifest, then downloads +
-// flashes + reboots (this request drops as the board restarts). Only
-// returns if there was nothing newer after all.
-static void handleInstallUpdate() {
-    lastActivityMs = millis();
-    devLog.println("portal: manual firmware install");
-    otaInstallNow();
-    sendDone("Nothing to install",
-             "No newer build was installed — it may already be current, or a "
-             "gate blocked it. See the <a href=\"/log\">log</a>.");
-}
-
-static void handleForgetWifi() {
-    lastActivityMs = millis();
-    sendDone("Wi-Fi forgotten",
-             "The frame will show setup instructions on its screen. Join the <b>" + String(AP_NAME) + "</b> hotspot to reconnect.");
-    delay(300); // let the response reach the phone BEFORE dropping Wi-Fi
-    WiFiManager wm;
-    wm.resetSettings(); // disconnects STA — must come after the send
-    result = PortalResult::ForgetWifi;
-    exitRequested = true;
-    devLog.println("portal: wifi credentials forgotten");
+    server.send(200, "text/html", buildPage());
 }
 
 // One field per request. Validates just that field; on rejection writes
@@ -435,15 +308,10 @@ bool startPortal() {
     if (!routesRegistered) {
         routesRegistered = true;
         server.on("/", HTTP_GET, handleRoot);
-        server.on("/save", HTTP_POST, handleSave);
         server.on("/set", HTTP_POST, handleSet);
         server.on("/ota/peek", HTTP_GET, handleOtaPeek);
         server.on("/ota/install", HTTP_POST, handleOtaInstall);
         server.on("/factory-reset", HTTP_POST, handleFactoryReset);
-        server.on("/action/newpic", HTTP_POST, handleNewPic);
-        server.on("/action/checkupdate", HTTP_POST, handleCheckUpdate);
-        server.on("/action/installupdate", HTTP_POST, handleInstallUpdate);
-        server.on("/action/forgetwifi", HTTP_POST, handleForgetWifi);
         server.on("/last.jpg", HTTP_GET, handleLastJpg);
         server.on("/current", HTTP_GET, handleCurrent);
         server.on("/previous", HTTP_GET, handlePrevious);
@@ -462,12 +330,37 @@ bool startPortal() {
     return true;
 }
 
+// An orientation change from /set: re-dither the cached image at the new
+// rotation (no network) and push it. The ~20-30 s draw blocks the portal;
+// the JS shows "updating display…" from the /set 200 response. A url
+// change (pendingFetch) needs an actual fetch and is taken by the caller
+// via takePortalFetch() instead — portal.cpp can't see doFetchCycle().
+static void servicePendingRender() {
+    if (!pendingRender) return;
+    pendingRender = false;
+    applyOrientation();
+    setLed(LedMode::Heartbeat);
+    if (renderCachedPhoto()) {
+        devLog.println("updating display (takes ~20-30 s)...");
+        epaper.update();
+    }
+    setLed(LedMode::Solid);
+    lastActivityMs = millis(); // the long draw isn't idleness
+}
+
+bool takePortalFetch() {
+    bool f = pendingFetch;
+    pendingFetch = false;
+    return f;
+}
+
 PortalResult runPortal(uint32_t inactivityTimeoutMs) {
     result = PortalResult::Timeout;
     exitRequested = false;
     lastActivityMs = millis();
     while (!exitRequested) {
         server.handleClient();
+        servicePendingRender();
         if (buttonPressed(BTN_INFO) || consumeSimulatedPress(BTN_INFO)) {
             result = PortalResult::KeyExit;
             break;
@@ -476,8 +369,7 @@ PortalResult runPortal(uint32_t inactivityTimeoutMs) {
         delay(10);
     }
     delay(200); // let the last HTTP response flush
-    exitRequested = false; // consumed by this session — takePortalAction()
-                           // must not re-fire on it after runPortal returns
+    exitRequested = false;
     if (!portalPersistent) stopPortal();
     return result;
 }
@@ -485,13 +377,9 @@ PortalResult runPortal(uint32_t inactivityTimeoutMs) {
 void setPortalPersistent(bool on) { portalPersistent = on; }
 
 void servicePortal() {
-    if (portalRunning) server.handleClient();
-}
-
-bool takePortalAction() {
-    if (!exitRequested) return false;
-    exitRequested = false;
-    return true;
+    if (!portalRunning) return;
+    server.handleClient();
+    servicePendingRender();
 }
 
 void stopPortal() {

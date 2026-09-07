@@ -170,25 +170,23 @@ static bool runStatusMode(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     if (!connectWifi()) return false; // provisioning fallback already drew
     if (!startPortal()) { doFetchCycle(true); return true; }
     PortalResult r = runPortal(10 * 60 * 1000UL);
-    switch (r) {
-        case PortalResult::KeyExit: devLog.println("portal: KEY1 exit"); break;
-        case PortalResult::Timeout: devLog.println("portal: idle timeout"); break;
-        case PortalResult::Saved: break;      // logged in the handler
-        case PortalResult::ForgetWifi: break; // next connect reopens provisioning
-    }
-    // Settings (rotation, url, ...) may have changed: reapply orientation
-    // before the panel is redrawn either way.
+    devLog.println(r == PortalResult::KeyExit ? "portal: KEY1 exit"
+                                              : "portal: idle timeout");
+    // Fields auto-saved as they were changed; orientation/cached re-renders
+    // already happened inside runPortal(). Reapply the manual TZ offset
+    // (it doesn't survive as an env across the portal loop) and, if the
+    // image source changed, fetch it now so the change is visible.
     applyOrientation();
-    applyUtcOffset(prefs.getLong("tzOff", 0)); // manual TZ applies either way
+    applyUtcOffset(prefs.getLong("tzOff", 0));
 
-    if (r == PortalResult::Saved || r == PortalResult::ForgetWifi) {
-        doFetchCycle(true); // a real setting changed -- show its effect now
+    if (takePortalFetch()) {
+        doFetchCycle(true); // image source changed -- show it now
         return true;
     }
-    // KeyExit / Timeout: nothing changed -- redisplay the cached photo.
+    // Nothing needs a fresh fetch -- redisplay the cached image.
     setLed(LedMode::Heartbeat);
     if (renderCachedPhoto()) {
-        devLog.println("updating panel (takes ~20-30 s)...");
+        devLog.println("updating display (takes ~20-30 s)...");
         epaper.update();
         devLog.println("done");
         setLed(LedMode::Solid);
@@ -311,8 +309,8 @@ void loop() {
         if (startPortal())
             devLog.println("dev mode: portal up at " + portalUrl());
     }
-    servicePortal();
-    if (takePortalAction()) {
+    servicePortal(); // pumps HTTP + any pending cached-image re-render
+    if (takePortalFetch()) { // image source changed via /set
         applyUtcOffset(prefs.getLong("tzOff", 0));
         applyOrientation();
         setLed(LedMode::Solid);

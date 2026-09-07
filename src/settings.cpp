@@ -5,7 +5,7 @@
 Settings settings;
 
 // NVS keys (<=15 chars): sleepSecs imgUrl quietEn quietSh quietEh tzAuto
-// devName rot otaEn otaSecs. The operative UTC offset stays in the
+// devName rot otaEn. The operative UTC offset stays in the
 // pre-existing "tzOff" key (written by auto-detect or by the portal in
 // manual mode).
 void loadSettings() {
@@ -22,7 +22,6 @@ void loadSettings() {
                                            : String(DEFAULT_DEVICE_NAME);
     settings.rotation = prefs.getUChar("rot", DEFAULT_ROTATION);
     settings.otaEnabled = prefs.getBool("otaEn", DEFAULT_OTA_ENABLED);
-    settings.otaCheckSecs = prefs.getUInt("otaSecs", DEFAULT_OTA_CHECK_SECS);
 }
 
 void saveSettings() {
@@ -35,5 +34,4 @@ void saveSettings() {
     prefs.putString("devName", settings.name);
     prefs.putUChar("rot", settings.rotation);
     prefs.putBool("otaEn", settings.otaEnabled);
-    prefs.putUInt("otaSecs", settings.otaCheckSecs);
 }

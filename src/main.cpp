@@ -111,7 +111,7 @@ static void doFetchCycle(bool interactive) {
         if (interactive) {
             showError("Wi-Fi connection failed");
         } else {
-            devLog.println("wifi failed — keeping photo, retry next wake");
+            devLog.println("wifi failed — keeping image, retry next wake");
             maybeShowStuckError();
         }
         setLed(LedMode::Solid);
@@ -124,7 +124,7 @@ static void doFetchCycle(bool interactive) {
         if (interactive) {
             showError(err);
         } else {
-            devLog.println("fetch failed (" + err + ") — keeping photo");
+            devLog.println("fetch failed (" + err + ") — keeping image");
             maybeShowStuckError();
         }
         setLed(LedMode::Solid);
@@ -134,7 +134,7 @@ static void doFetchCycle(bool interactive) {
     stuckErrorShown = false;
     syncClock();
     recordFetchMetadata();
-    devLog.println("updating panel (takes ~20-30 s)...");
+    devLog.println("updating display (takes ~20-30 s)...");
     epaper.update();
     devLog.println("done");
     setLed(LedMode::Solid);
@@ -149,18 +149,17 @@ static void doFetchCycle(bool interactive) {
         maybeRunOtaCheck(batteryPercent(lastVbatMv));
 }
 
-// KEY1: status page + settings portal. Draw first (from NVS cache, no
-// network), then bring Wi-Fi + the portal up — by the time the panel
+// KEY1: status screen + settings portal. Draw first (from NVS cache, no
+// network), then bring Wi-Fi + the portal up — by the time the display
 // finishes its ~30 s refresh and a phone is out, the portal is live.
-// Exit paths that actually changed something (save, forget-wifi) fall
-// through to a real fetch cycle so the change takes effect visibly.
-// Exit paths that didn't (KEY1 again, idle timeout) redisplay the cached
-// photo instead of burning a network fetch -- and, since the default
-// image source is randomized, instead of silently swapping the picture
-// just because someone glanced at the status screen. Returns false only
-// when Wi-Fi never came up (provisioning fallback already drew its own
-// screen); the caller must not run a second connectWifi()/portal window
-// in that case.
+// Settings auto-save as they're changed; an image-source change asks for
+// a fetch (takePortalFetch()) so the new source is visible on exit.
+// Otherwise (KEY1 again, idle timeout) redisplay the cached image instead
+// of burning a network fetch -- and, since the default image source is
+// randomized, instead of silently swapping the image just because someone
+// glanced at the status screen. Returns false only when Wi-Fi never came
+// up (provisioning fallback already drew its own screen); the caller must
+// not run a second connectWifi()/portal window in that case.
 static bool runStatusMode(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     devLog.println("drawing status screen (takes ~20-30 s)...");
     setLed(LedMode::Heartbeat);
@@ -170,25 +169,23 @@ static bool runStatusMode(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     if (!connectWifi()) return false; // provisioning fallback already drew
     if (!startPortal()) { doFetchCycle(true); return true; }
     PortalResult r = runPortal(10 * 60 * 1000UL);
-    switch (r) {
-        case PortalResult::KeyExit: devLog.println("portal: KEY1 exit"); break;
-        case PortalResult::Timeout: devLog.println("portal: idle timeout"); break;
-        case PortalResult::Saved: break;      // logged in the handler
-        case PortalResult::ForgetWifi: break; // next connect reopens provisioning
-    }
-    // Settings (rotation, url, ...) may have changed: reapply orientation
-    // before the panel is redrawn either way.
+    devLog.println(r == PortalResult::KeyExit ? "portal: KEY1 exit"
+                                              : "portal: idle timeout");
+    // Fields auto-saved as they were changed; orientation/cached re-renders
+    // already happened inside runPortal(). Reapply the manual TZ offset
+    // (it doesn't survive as an env across the portal loop) and, if the
+    // image source changed, fetch it now so the change is visible.
     applyOrientation();
-    applyUtcOffset(prefs.getLong("tzOff", 0)); // manual TZ applies either way
+    applyUtcOffset(prefs.getLong("tzOff", 0));
 
-    if (r == PortalResult::Saved || r == PortalResult::ForgetWifi) {
-        doFetchCycle(true); // a real setting changed -- show its effect now
+    if (takePortalFetch()) {
+        doFetchCycle(true); // image source changed -- show it now
         return true;
     }
-    // KeyExit / Timeout: nothing changed -- redisplay the cached photo.
+    // Nothing needs a fresh fetch -- redisplay the cached image.
     setLed(LedMode::Heartbeat);
     if (renderCachedPhoto()) {
-        devLog.println("updating panel (takes ~20-30 s)...");
+        devLog.println("updating display (takes ~20-30 s)...");
         epaper.update();
         devLog.println("done");
         setLed(LedMode::Solid);
@@ -311,8 +308,8 @@ void loop() {
         if (startPortal())
             devLog.println("dev mode: portal up at " + portalUrl());
     }
-    servicePortal();
-    if (takePortalAction()) {
+    servicePortal(); // pumps HTTP + any pending cached-image re-render
+    if (takePortalFetch()) { // image source changed via /set
         applyUtcOffset(prefs.getLong("tzOff", 0));
         applyOrientation();
         setLed(LedMode::Solid);

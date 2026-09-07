@@ -1,11 +1,11 @@
 #pragma once
 #include <Arduino.h>
 
-// Settings portal, live while the status page is on the panel.
-// Lifecycle: connectWifi() -> startPortal() -> runPortal() -> caller runs
-// a fetch cycle and sleeps. Every exit path behaves the same; the enum is
-// for logging (ForgetWifi's next fetch cycle reopens provisioning).
-enum class PortalResult { KeyExit, Timeout, Saved, ForgetWifi };
+// Settings portal, live while the status screen is on the display.
+// Lifecycle: connectWifi() -> startPortal() -> runPortal() -> caller
+// redisplays the cached image and sleeps. Settings auto-save via /set as
+// the user changes them; runPortal() only reports how it exited.
+enum class PortalResult { KeyExit, Timeout };
 
 bool startPortal();                                   // mDNS + HTTP :80
 PortalResult runPortal(uint32_t inactivityTimeoutMs); // blocking loop
@@ -13,12 +13,12 @@ String portalUrl();                                   // "http://<name>.local"
 
 // Dev mode (USB host attached, device never sleeps): the portal runs
 // permanently. setPortalPersistent(true) makes runPortal() leave the
-// server + mDNS up on exit; servicePortal() pumps requests from loop();
-// takePortalAction() reports (once) that a handler asked to apply
-// settings — the caller reapplies orientation/TZ and fetches.
+// server + mDNS up on exit; servicePortal() pumps requests (and cached-
+// image re-renders) from loop(); takePortalFetch() reports (once) that an
+// image-source change needs a fresh fetch — the caller runs doFetchCycle.
 void setPortalPersistent(bool on);
 void servicePortal();
-bool takePortalAction();
+bool takePortalFetch();
 
 // Stop the web server + mDNS (no-op when not running). connectWifi()
 // calls this before any connect that may open the WiFiManager captive

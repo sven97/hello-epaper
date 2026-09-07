@@ -297,7 +297,10 @@ void maybeRunOtaCheck(int batteryPct, bool force) {
         os.pendingBuild != 0,
         batteryPct,
     };
-    if (!shouldCheckForUpdate(gate)) {
+    // force (the portal's manual install) ignores the auto-update toggle
+    // -- the user asked -- but every other safety gate still holds.
+    bool eligible = force ? canManualUpdate(gate) : shouldCheckForUpdate(gate);
+    if (!eligible) {
         if (force || (settings.otaEnabled && !gate.trialPending))
             devLog.printf("ota: check skipped (enabled=%d build=%u dirty=%d "
                           "trial=%d batt=%d%%)\n",
@@ -323,7 +326,7 @@ void maybeRunOtaCheck(int batteryPct, bool force) {
         devLog.println("ota: manifest parse failed");
         return;
     }
-    if (!shouldInstallUpdate(gate, mi.build)) {
+    if (mi.build <= gate.deviceBuild) { // eligibility already decided above
         devLog.printf("ota: up to date (running %u, latest %u)\n",
                       gate.deviceBuild, mi.build);
         return;
@@ -399,11 +402,17 @@ OtaPeekResult otaPeek(uint32_t &latestBuild) {
         os.pendingBuild != 0,
         batteryPercent(lastVbatMv),
     };
-    if (!shouldCheckForUpdate(gate)) {
-        devLog.printf("ota: peek blocked (enabled=%d build=%u dirty=%d trial=%d "
-                      "batt=%d%%)\n",
-                      (int)gate.enabled, gate.deviceBuild, (int)gate.deviceDirty,
-                      (int)gate.trialPending, gate.batteryPct);
+    // A peek neither flashes nor drains -- gate only on what would make
+    // the *answer* meaningless: no provenance, a -dirty local build, or an
+    // update already on trial. The auto-update toggle and battery level
+    // don't apply here (they gate the install, not the look).
+    if (gate.deviceDirty || gate.deviceBuild == 0) {
+        devLog.printf("ota: peek blocked (build=%u dirty=%d)\n",
+                      gate.deviceBuild, (int)gate.deviceDirty);
+        return OtaPeekResult::Blocked;
+    }
+    if (gate.trialPending) {
+        devLog.println("ota: peek blocked (an update is on trial)");
         return OtaPeekResult::Blocked;
     }
     time_t now = time(nullptr);

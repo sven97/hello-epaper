@@ -28,6 +28,17 @@ inline const char *DEFAULT_IMAGE_URL =
     "https://images.weserv.nl/?url=picsum.photos/{width}/{height}"
     "%3Frandom%3D{seed}&output=jpg";
 
+// ---- Auto firmware update ----------------------------------------------
+// Fixed rolling release published by .github/workflows/ci.yml on every
+// push to main; assets are clobbered in place so these URLs are stable.
+inline const char *OTA_RELEASE_BASE_URL =
+    "https://github.com/sven97/hello-epaper/releases/download/firmware-latest/";
+inline const char *OTA_MANIFEST_URL =
+    "https://github.com/sven97/hello-epaper/releases/download/firmware-latest/manifest.txt";
+
+constexpr bool     DEFAULT_OTA_ENABLED    = true;         // opt-out
+constexpr uint32_t DEFAULT_OTA_CHECK_SECS = 24 * 60 * 60; // daily
+
 // Per-board overrides, set via build_flags in platformio.ini (same idiom as
 // BOARD_SCREEN_COMBO). Undefined -> EE02 defaults, unchanged from before.
 #ifndef DEFAULT_DEVICE_NAME_STR

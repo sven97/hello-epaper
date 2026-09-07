@@ -42,6 +42,8 @@ Tokens: {width} {height} {seed}</div>
 <input type="text" name="name" value="%NAME%" maxlength="24">
 <div class="note">lowercase letters, digits, hyphens</div>
 <label>Orientation</label><select name="rot">%ROT_OPTS%</select>
+<label><input type="checkbox" name="ota_en" %OTA_EN%> Auto-update firmware</label>
+<label>Check for updates</label><select name="ota_secs">%OTA_OPTS%</select>
 </fieldset>
 <button class="primary" type="submit">Save &amp; apply</button>
 </form>
@@ -50,6 +52,7 @@ Tokens: {width} {height} {seed}</div>
 <form method="POST" action="/action/forgetwifi" style="margin-top:1rem"
 onsubmit="return confirm('Forget Wi-Fi and reopen the setup hotspot?')">
 <button class="danger" type="submit">Forget Wi-Fi…</button></form>
+<p class="note" style="margin-top:1.4rem">firmware %HASH% &middot; build %BUILD%</p>
 </body></html>)HTML";
 
 inline const char PORTAL_DONE_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
@@ -72,7 +75,8 @@ pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f4;border-radius:
 h2{font-size:1rem;margin:1.4rem 0 .3rem}</style>
 </head><body>
 <h1>Debug</h1>
-<p class="note">%BOARD% &middot; firmware %HASH%</p>
+<p class="note">%BOARD% &middot; firmware %HASH% &middot; build %BUILD%</p>
+<p class="note">auto-update %OTA_STATE% &middot; last check %OTA_LAST% &middot; trial %OTA_TRIAL%</p>
 <h2>Displayed now (last fetched photo)</h2>
 <img src="/last.jpg" alt="last fetched photo">
 <h2>On the panel right now (full resolution)</h2>

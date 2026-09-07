@@ -10,10 +10,14 @@
 #include "settings.h"
 #include "ui.h"
 #include "logic/url_template.h"
+#include "logic/firmware_manifest.h"
+#include "logic/firmware_update.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WiFiManager.h>
 #include <HTTPClient.h>
+#include <Update.h>
+#include <esp_ota_ops.h>
 #include <time.h>
 #include <cstring>
 
@@ -242,4 +246,128 @@ bool syncClock() {
     configTime(off, 0, "pool.ntp.org");
     struct tm now;
     return getLocalTime(&now, 10000);
+}
+
+// ---- Auto firmware update --------------------------------------------------
+
+// Lower-case board model ("EE02" -> "ee02"), for manifest keys and asset
+// names.
+static String boardKeyLower() {
+    String s(BOARD_MODEL);
+    s.toLowerCase();
+    return s;
+}
+
+// GET `url` into `body` (emptied if it exceeds `cap`). Returns the HTTP
+// status code, or a negative HTTPClient error. Follows redirects — GitHub
+// release assets 302 to a CDN host.
+static int httpGetString(const String &url, String &body, size_t cap) {
+    WiFiClientSecure client;
+    client.setInsecure(); // learning repo: skip cert validation (matches fetchImage)
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+    http.setTimeout(8000);
+    if (!http.begin(client, url)) return -1;
+    int code = http.GET();
+    if (code == HTTP_CODE_OK) {
+        body = http.getString();
+        if (body.length() > cap) body = "";
+    }
+    http.end();
+    return code;
+}
+
+void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
+                      uint8_t &otaTrialBoots, uint8_t &otaTrialFetchFails,
+                      int batteryPct) {
+    // Cadence: clock is sane here (syncClock() just ran in doFetchCycle()).
+    time_t now = time(nullptr);
+    if (now <= CLOCK_SANE_EPOCH) return;
+    if (lastOtaCheckEpoch != 0 &&
+        now - (time_t)lastOtaCheckEpoch < (time_t)settings.otaCheckSecs)
+        return;
+
+    String hash(FW_GIT_HASH);
+    OtaGate gate{
+        settings.otaEnabled,
+        (uint32_t)FW_BUILD_NUMBER,
+        hash.endsWith("-dirty"),
+        otaPendingBuild != 0,
+        batteryPct,
+    };
+    if (!shouldCheckForUpdate(gate)) {
+        if (settings.otaEnabled && !gate.trialPending)
+            devLog.printf("ota: skipped (build=%u dirty=%d batt=%d%%)\n",
+                          gate.deviceBuild, (int)gate.deviceDirty, batteryPct);
+        return;
+    }
+
+    lastOtaCheckEpoch = (uint32_t)now; // a failed fetch still counts
+
+    String body;
+    int code = httpGetString(String(OTA_MANIFEST_URL), body, 4096);
+    if (code != HTTP_CODE_OK || body.isEmpty()) {
+        devLog.printf("ota: manifest fetch failed (%d)\n", code);
+        return;
+    }
+
+    ManifestInfo mi;
+    String bk = boardKeyLower();
+    if (!parseManifest(body.c_str(), bk.c_str(), mi)) {
+        devLog.println("ota: manifest parse failed");
+        return;
+    }
+    if (!shouldInstallUpdate(gate, mi.build)) {
+        devLog.printf("ota: up to date (running %u, latest %u)\n",
+                      gate.deviceBuild, mi.build);
+        return;
+    }
+
+    String binUrl = String(OTA_RELEASE_BASE_URL) + "firmware-" + bk + ".bin";
+    devLog.printf("ota: build %u -> %u, downloading %s\n",
+                  gate.deviceBuild, mi.build, binUrl.c_str());
+
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
+    http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+    http.setTimeout(15000);
+    if (!http.begin(client, binUrl)) {
+        devLog.println("ota: bin http.begin failed");
+        return;
+    }
+    int bcode = http.GET();
+    int len = http.getSize();
+    if (bcode != HTTP_CODE_OK || len <= 0) {
+        devLog.printf("ota: bin GET failed (code %d, len %d)\n", bcode, len);
+        http.end();
+        return;
+    }
+
+    // Commit trial bookkeeping BEFORE the flash: a brownout mid-write then
+    // still leaves a coherent "build N is on trial" record for the
+    // boot-health guard (which treats running!=pending as Revert).
+    otaPendingBuild = mi.build;
+    otaTrialBoots = 0;
+    otaTrialFetchFails = 0;
+
+    if (!Update.begin((size_t)len, U_FLASH)) {
+        devLog.printf("ota: Update.begin failed: %s\n", Update.errorString());
+        otaPendingBuild = 0;
+        http.end();
+        return;
+    }
+    Update.setMD5(mi.md5);
+    size_t written = Update.writeStream(http.getStream());
+    http.end();
+    if (written != (size_t)len || !Update.end(true)) {
+        devLog.printf("ota: flash failed (%u/%d bytes): %s\n",
+                      (unsigned)written, len, Update.errorString());
+        Update.abort();
+        otaPendingBuild = 0; // nothing committed -- clear the trial
+        return;
+    }
+    devLog.printf("ota: build %u written, rebooting into it\n", mi.build);
+    delay(100);
+    esp_restart();
 }

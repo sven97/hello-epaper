@@ -23,6 +23,13 @@ static uint32_t lastActivityMs;
 static bool portalRunning;
 static bool portalPersistent;
 
+// Set by /set when a visible setting changed; consumed between
+// server.handleClient() calls. pendingRender re-dithers the cached image
+// (no network, handled here); pendingFetch pulls a fresh one and is
+// taken by the KEY1 caller / dev loop via takePortalFetch().
+static bool pendingRender = false;
+static bool pendingFetch = false;
+
 String portalUrl() { return "http://" + settings.name + ".local"; }
 
 static String selectOptions(int from, int to, int selected,
@@ -268,6 +275,117 @@ static void handleForgetWifi() {
     devLog.println("portal: wifi credentials forgotten");
 }
 
+// One field per request. Validates just that field; on rejection writes
+// nothing and returns the message. Sets a pending-panel flag for the two
+// fields that change what's on the display.
+static void handleSet() {
+    lastActivityMs = millis();
+    String f = server.arg("f");
+    String v = server.arg("v");
+    bool on = (v == "1" || v == "true" || v == "on");
+    String err;
+
+    if (f == "sleep") {
+        uint32_t s = (uint32_t)v.toInt();
+        if (!isValidSleepSecs(s)) err = "Invalid interval.";
+        else { settings.sleepSecs = s; saveSettings(); }
+    } else if (f == "url") {
+        if (!isValidImageUrl(v.c_str()))
+            err = "Must be http(s) and under 512 characters.";
+        else if (v != settings.imageUrl) {
+            settings.imageUrl = v;
+            saveSettings();
+            pendingFetch = true;
+        }
+    } else if (f == "paused") {
+        held = on;
+        prefs.putBool("held", held);
+    } else if (f == "quiet_en") {
+        settings.quietEnabled = on;
+        saveSettings();
+    } else if (f == "quiet_start" || f == "quiet_end") {
+        int h = v.toInt();
+        if (!isValidHour(h)) err = "Invalid hour.";
+        else {
+            uint8_t s = settings.quietStartHour, e = settings.quietEndHour;
+            if (f == "quiet_start") s = (uint8_t)h; else e = (uint8_t)h;
+            if (settings.quietEnabled && s == e)
+                err = "Start and end must differ.";
+            else {
+                settings.quietStartHour = s;
+                settings.quietEndHour = e;
+                saveSettings();
+            }
+        }
+    } else if (f == "tz") {
+        if (v == "auto") { settings.tzAuto = true; saveSettings(); }
+        else if (!isValidTzOffsetSec(v.toInt())) err = "Invalid offset.";
+        else {
+            settings.tzAuto = false;
+            saveSettings();
+            prefs.putLong("tzOff", v.toInt());
+        }
+    } else if (f == "name") {
+        if (!isValidDeviceName(v.c_str()))
+            err = "1-24 of a-z, 0-9, hyphen (not at the ends).";
+        else { settings.name = v; saveSettings(); }
+    } else if (f == "rot") {
+        int r = v.toInt();
+        if (!isValidRotation(r)) err = "Invalid orientation.";
+        else if ((uint8_t)r != settings.rotation) {
+            settings.rotation = (uint8_t)r;
+            saveSettings();
+            pendingRender = true;
+        }
+    } else if (f == "ota_en") {
+        settings.otaEnabled = on;
+        saveSettings();
+    } else {
+        err = "Unknown field.";
+    }
+
+    if (err.isEmpty()) server.send(200, "text/plain", "ok");
+    else               server.send(400, "text/plain", err);
+}
+
+static void handleOtaPeek() {
+    lastActivityMs = millis();
+    uint32_t latest = 0;
+    switch (otaPeek(latest)) {
+        case OtaPeekResult::Available:
+            server.send(200, "text/plain", "available " + String(latest));
+            return;
+        case OtaPeekResult::UpToDate:
+            server.send(200, "text/plain", "uptodate");
+            return;
+        case OtaPeekResult::Blocked:
+            server.send(200, "text/plain", "blocked");
+            return;
+        default:
+            server.send(200, "text/plain", "unreachable");
+            return;
+    }
+}
+
+static void handleOtaInstall() {
+    lastActivityMs = millis();
+    devLog.println("portal: manual firmware install");
+    otaInstallNow(); // reboots on success
+    server.send(200, "text/plain", "nothing newer to install");
+}
+
+static void handleFactoryReset() {
+    lastActivityMs = millis();
+    server.send(200, "text/plain", "erasing");
+    devLog.println("portal: factory reset");
+    delay(300); // let the response flush before the network drops
+    WiFiManager wm;
+    wm.resetSettings(); // Wi-Fi credentials live in a separate NVS namespace
+    prefs.clear();      // wipes the whole "frame" namespace
+    delay(100);
+    ESP.restart();
+}
+
 static void handleLastJpg() { streamCachedPhoto(server); }
 static void handleCurrent() { streamCurrentBmp(server); }
 static void handlePrevious() { streamPreviousBmp(server); }
@@ -318,6 +436,10 @@ bool startPortal() {
         routesRegistered = true;
         server.on("/", HTTP_GET, handleRoot);
         server.on("/save", HTTP_POST, handleSave);
+        server.on("/set", HTTP_POST, handleSet);
+        server.on("/ota/peek", HTTP_GET, handleOtaPeek);
+        server.on("/ota/install", HTTP_POST, handleOtaInstall);
+        server.on("/factory-reset", HTTP_POST, handleFactoryReset);
         server.on("/action/newpic", HTTP_POST, handleNewPic);
         server.on("/action/checkupdate", HTTP_POST, handleCheckUpdate);
         server.on("/action/installupdate", HTTP_POST, handleInstallUpdate);

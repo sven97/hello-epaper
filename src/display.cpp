@@ -128,7 +128,7 @@ uint16_t truePixelColor(int x, int y) {
 // Raw RGB565 must never be pushed at 4 bpp: the sprite stores color &
 // 0x0F there, i.e. it expects palette nibbles, not RGB values.
 static bool ditherToPanel(const uint16_t *fb, int w, int h) {
-    devLog.println("dithering to panel palette...");
+    devLog.println("dithering to display palette...");
     const int stride = (w + 2) * 3; // per-channel error, 1-px guard each side
     int16_t *errs = (int16_t *)calloc(2 * stride, sizeof(int16_t));
     if (!errs) {

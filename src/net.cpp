@@ -93,7 +93,7 @@ static void showProvisioningScreenOnce() {
     provisioningScreenShown = true;
     devLog.println("drawing provisioning instructions (takes ~20-30 s)...");
     showProvisioningScreen();
-    devLog.println("instructions on panel");
+    devLog.println("instructions on display");
 }
 
 static void configModeCallback(WiFiManager *wm) {

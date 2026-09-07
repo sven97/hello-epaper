@@ -45,13 +45,13 @@ bool hasCachedPhoto() {
 
 bool streamCachedPhoto(WebServer &server) {
     if (!ensureMounted()) {
-        server.send(404, "text/plain", "no cached photo");
+        server.send(404, "text/plain", "no cached image");
         return false;
     }
     fs::File f = LittleFS.open(CACHE_PATH, "r");
     if (!f || f.size() == 0) {
         if (f) f.close();
-        server.send(404, "text/plain", "no cached photo");
+        server.send(404, "text/plain", "no cached image");
         return false;
     }
     server.streamFile(f, "image/jpeg");

@@ -36,8 +36,8 @@ inline const char *OTA_RELEASE_BASE_URL =
 inline const char *OTA_MANIFEST_URL =
     "https://github.com/sven97/hello-epaper/releases/download/firmware-latest/manifest.txt";
 
-constexpr bool     DEFAULT_OTA_ENABLED    = true;         // opt-out
-constexpr uint32_t DEFAULT_OTA_CHECK_SECS = 24 * 60 * 60; // daily
+constexpr bool     DEFAULT_OTA_ENABLED     = true;         // opt-out
+constexpr uint32_t OTA_CHECK_INTERVAL_SECS = 24 * 60 * 60; // fixed: daily
 
 // Per-board overrides, set via build_flags in platformio.ini (same idiom as
 // BOARD_SCREEN_COMBO). Undefined -> EE02 defaults, unchanged from before.

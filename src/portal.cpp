@@ -85,23 +85,6 @@ static String rotOptions() {
     return out;
 }
 
-// Auto firmware update check interval — the three values the /debug page
-// and shouldInstallUpdate reason about. Anything else round-trips to daily.
-static String otaIntervalOptions(uint32_t cur) {
-    struct Opt { uint32_t secs; const char *label; };
-    static const Opt OPTS[] = {
-        {24 * 60 * 60, "Daily"},
-        {12 * 60 * 60, "Every 12 hours"},
-        {7 * 24 * 60 * 60, "Weekly"},
-    };
-    String out;
-    for (const auto &o : OPTS) {
-        out += "<option value=\"" + String(o.secs) + "\"" +
-               (o.secs == cur ? " selected" : "") + ">" + o.label + "</option>";
-    }
-    return out;
-}
-
 // One-glance device state under the heading: battery, and when the next
 // photo lands (omitted before the first NTP sync — never show 1970 math).
 static String statusLine() {
@@ -147,7 +130,6 @@ static String buildPage(const String &error) {
     page.replace("%TZ_OPTS%", tzOptions());
     page.replace("%ROT_OPTS%", rotOptions());
     page.replace("%OTA_EN%", settings.otaEnabled ? "checked" : "");
-    page.replace("%OTA_OPTS%", otaIntervalOptions(settings.otaCheckSecs));
     page.replace("%HASH%", FW_GIT_HASH);
     page.replace("%BUILD%", String((uint32_t)FW_BUILD_NUMBER));
     // Must be last: a stored URL containing a literal token string (e.g.
@@ -182,10 +164,6 @@ static void handleSave() {
     String name = server.arg("name");
     int rot = server.arg("rot").toInt();
     bool otaEn = server.hasArg("ota_en");
-    uint32_t otaSecs = (uint32_t)server.arg("ota_secs").toInt();
-    // whitelist-clamp to the three offered values; anything else -> daily
-    if (otaSecs != 12 * 60 * 60 && otaSecs != 7 * 24 * 60 * 60)
-        otaSecs = 24 * 60 * 60;
 
     String err;
     if (!isValidSleepSecs(sleep)) err = "Invalid refresh interval.";
@@ -208,7 +186,6 @@ static void handleSave() {
     settings.name = name;
     settings.rotation = (uint8_t)rot;
     settings.otaEnabled = otaEn;
-    settings.otaCheckSecs = otaSecs;
     settings.tzAuto = (tz == "auto");
     if (!settings.tzAuto) prefs.putLong("tzOff", tz.toInt());
     saveSettings();
@@ -309,10 +286,7 @@ static void handleDebug() {
     page.replace("%HASH%", FW_GIT_HASH);
     page.replace("%BUILD%", String((uint32_t)FW_BUILD_NUMBER));
 
-    String otaState = settings.otaEnabled
-                          ? "on, every " + String(settings.otaCheckSecs / 3600) + "h"
-                          : String("off");
-    page.replace("%OTA_STATE%", otaState);
+    page.replace("%OTA_STATE%", settings.otaEnabled ? "on" : "off");
 
     OtaState os = otaStateLoad();
     String otaLast = "never";

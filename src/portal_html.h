@@ -46,7 +46,6 @@ Tokens: {width} {height} {seed}</div>
 <fieldset><legend>Firmware</legend>
 <div class="note">Running <b>%HASH%</b> &middot; build %BUILD%</div>
 <label><input type="checkbox" name="ota_en" %OTA_EN%> Auto-update on scheduled wakes</label>
-<label>Check for updates</label><select name="ota_secs">%OTA_OPTS%</select>
 </fieldset>
 <button class="primary" type="submit">Save &amp; apply</button>
 </form>

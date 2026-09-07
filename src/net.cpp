@@ -285,7 +285,7 @@ void maybeRunOtaCheck(int batteryPct, bool force) {
         // Cadence: clock is sane here (syncClock() just ran in doFetchCycle()).
         if (now <= CLOCK_SANE_EPOCH) return;
         if (os.lastCheckEpoch != 0 &&
-            now - (time_t)os.lastCheckEpoch < (time_t)settings.otaCheckSecs)
+            now - (time_t)os.lastCheckEpoch < (time_t)OTA_CHECK_INTERVAL_SECS)
             return;
     }
 

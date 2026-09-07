@@ -2,6 +2,7 @@
 #include "config.h"
 #include "display.h"
 #include "devlog.h"
+#include "net.h"
 #include "photocache.h"
 #include "portal_html.h"
 #include "screencapture.h"
@@ -227,6 +228,23 @@ static void handleNewPic() {
     devLog.println("portal: new picture requested");
 }
 
+static void handleCheckUpdate() {
+    lastActivityMs = millis();
+    devLog.println("portal: manual firmware update check");
+    // Blocks for the manifest GET and, if a newer build exists, the
+    // download + flash — then esp_restart() into it (this request just
+    // drops as the board reboots). Only returns when there was nothing
+    // newer, or a gate (auto-update off / battery low / -dirty build)
+    // blocked it; the log line above plus otaCheckNow()'s own line say
+    // which.
+    otaCheckNow();
+    sendDone("Up to date",
+             "No newer firmware build was installed. If you expected one, "
+             "check that Auto-update is enabled and saved, the battery is "
+             "above 40%, and this isn't a -dirty local build — see the "
+             "<a href=\"/log\">log</a>.");
+}
+
 static void handleForgetWifi() {
     lastActivityMs = millis();
     sendDone("Wi-Fi forgotten",
@@ -292,6 +310,7 @@ bool startPortal() {
         server.on("/", HTTP_GET, handleRoot);
         server.on("/save", HTTP_POST, handleSave);
         server.on("/action/newpic", HTTP_POST, handleNewPic);
+        server.on("/action/checkupdate", HTTP_POST, handleCheckUpdate);
         server.on("/action/forgetwifi", HTTP_POST, handleForgetWifi);
         server.on("/last.jpg", HTTP_GET, handleLastJpg);
         server.on("/current", HTTP_GET, handleCurrent);

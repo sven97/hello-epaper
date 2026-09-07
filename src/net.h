@@ -20,16 +20,13 @@ bool fetchImage(String &err);
 
 // Auto firmware update. Call only at the end of a fully successful,
 // unattended fetch cycle (photo already on the panel). Enforces the
-// cadence (lastOtaCheckEpoch) and eligibility gates itself; on a decision
-// to install, streams the new image into the passive OTA slot with MD5
-// verification, sets the trial bookkeeping, and reboots (does not
-// return). Any failure logs one line and returns — never propagates. The
-// four counters are main.cpp's RTC_DATA_ATTR state, passed by reference
-// so this owns none of it. force=true skips only the cadence timer (for
-// the portal's manual "check now" button) — every other gate still holds.
-void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
-                      uint8_t &otaTrialBoots, uint8_t &otaTrialFetchFails,
-                      int batteryPct, bool force = false);
+// cadence and eligibility gates itself; on a decision to install, streams
+// the new image into the passive OTA slot with MD5 verification, records
+// the trial in NVS (ota_state.h), and reboots (does not return). Any
+// failure logs one line and returns — never propagates. force=true skips
+// only the cadence timer (for the portal's manual install) — every other
+// gate still holds.
+void maybeRunOtaCheck(int batteryPct, bool force = false);
 
 // Portal manual update, two steps.
 //

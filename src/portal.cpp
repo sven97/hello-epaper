@@ -146,6 +146,8 @@ static String buildPage(const String &error) {
     page.replace("%ROT_OPTS%", rotOptions());
     page.replace("%OTA_EN%", settings.otaEnabled ? "checked" : "");
     page.replace("%OTA_OPTS%", otaIntervalOptions(settings.otaCheckSecs));
+    page.replace("%HASH%", FW_GIT_HASH);
+    page.replace("%BUILD%", String((uint32_t)FW_BUILD_NUMBER));
     // Must be last: a stored URL containing a literal token string (e.g.
     // "%PAUSED%") must not be re-substituted by a later replace() call.
     page.replace("%URL%", htmlEscape(settings.imageUrl));

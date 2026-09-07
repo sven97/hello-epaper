@@ -52,6 +52,7 @@ Tokens: {width} {height} {seed}</div>
 <form method="POST" action="/action/forgetwifi" style="margin-top:1rem"
 onsubmit="return confirm('Forget Wi-Fi and reopen the setup hotspot?')">
 <button class="danger" type="submit">Forget Wi-Fi…</button></form>
+<p class="note" style="margin-top:1.4rem">firmware %HASH% &middot; build %BUILD%</p>
 </body></html>)HTML";
 
 inline const char PORTAL_DONE_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>

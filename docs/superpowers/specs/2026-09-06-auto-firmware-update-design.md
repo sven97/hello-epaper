@@ -30,7 +30,7 @@ one untouched during download.
 |------|--------|-------------|
 | Where CI publishes | **Rolling `firmware-latest` GitHub Release** — assets clobbered every push to `main` | One stable tag, no growing tag list; asset URLs are permanent |
 | "Newer" test | **CI-generated monotonic build number** (`git rev-list --count HEAD`), stamped as `FW_BUILD_NUMBER` alongside `FW_GIT_HASH` | Forward-only updates; `docs/versioning.md` gains one CI-generated (never hand-bumped) number |
-| Rollback safety | **App-level boot-health guard** — RTC trial state, revert via `esp_ota_set_boot_partition()` | No custom bootloader; a hard brick *before* the guard runs in `setup()` still needs USB recovery |
+| Rollback safety | **App-level boot-health guard** — NVS-backed trial state (see revision note below), revert via `esp_ota_set_boot_partition()` | No custom bootloader; a hard brick *before* the guard runs in `setup()` still needs USB recovery |
 | Image trust | **HTTPS + manifest MD5**, no signing | Trusts the TLS connection to GitHub (same `setInsecure()` posture the photo fetch already uses); zero key management |
 
 ## Distribution: the `firmware-latest` release
@@ -193,21 +193,44 @@ inline OtaTrialVerdict otaTrialVerdict(const OtaTrialState &s) {
 slot" branch; when the revert already happened it's a cheap no-op
 re-assert of the boot partition.
 
-## RTC-persisted state (`src/main.cpp`)
+## Trial + cadence state — NVS, not RTC (`src/ota_state.h`)
 
-Alongside the existing `bootCount` / `lastVbatMv` / `fetchFailStreak`:
+> **Revised after hardware testing.** The first implementation put this
+> state in `RTC_DATA_ATTR` alongside `bootCount` / `fetchFailStreak`. That
+> is wrong for the OTA path: on the ESP32-S3, `esp_restart()` (which the
+> install does right after the flash) issues `RTC_SW_CPU_RST`, and that
+> **clears RTC_DATA_ATTR** — verified on the bench (`bootCount` came back
+> as `1`, `otaPendingBuild` / `lastOtaCheckEpoch` back to `0`, immediately
+> after an OTA reboot). So the boot-health guard never saw a trial and
+> could never roll back. Deep-sleep wakes preserve RTC; `esp_restart()`
+> does not.
+
+The four values live in NVS instead (namespace `"frame"`, via the shared
+`prefs`), which survives `esp_restart()`, power loss, and deep sleep
+alike. `src/ota_state.h` wraps them:
 
 ```cpp
-RTC_DATA_ATTR uint32_t lastOtaCheckEpoch = 0; // wall-clock of last manifest fetch
-RTC_DATA_ATTR uint32_t otaPendingBuild   = 0; // build on trial; 0 => none
-RTC_DATA_ATTR uint8_t  otaTrialBoots     = 0;
-RTC_DATA_ATTR uint8_t  otaTrialFetchFails = 0;
+struct OtaState { uint32_t lastCheckEpoch, pendingBuild; uint8_t trialBoots, trialFetchFails; };
+OtaState otaStateLoad();
+void otaStateBeginTrial(uint32_t build);   // before Update.writeStream()
+void otaStateClearTrial();                 // confirmed good / reverted / no-commit
+void otaStateSetLastCheck(uint32_t epoch);
+void otaStateSetTrialBoots(uint8_t v);
+void otaStateNoteCycleFail();              // ++trialFetchFails, guarded on running==pending
+bool otaStateNoteCycleOk();               // clears the trial, returns whether it did
 ```
 
-Same "survives deep sleep, cleared by power loss / reflash" contract as
-the neighbours — appropriate here: a power cycle also resets the Wi-Fi
-radio and, importantly, a USB reflash is exactly the manual-recovery path
-the trial guard is a backstop for, so wiping trial state then is correct.
+NVS keys (`<=15` chars): `otaLastChk` `otaPend` `otaTrBoot` `otaTrFail`.
+Write volume per OTA is tiny — one begin-trial, `<= OTA_TRIAL_MAX_BOOTS`
+boot bumps, one clear — plus one last-check stamp per cadence interval,
+far inside NVS endurance. A USB reflash no longer wipes the trial on its
+own, but that's fine: reflashing to the same or a newer build makes
+`running >= pending`, which the guard already resolves.
+
+`bootCount` / `lastVbatMv` / `fetchFailStreak` / `stuckErrorShown` stay in
+RTC — they only need to survive *deep sleep*, and a reset of
+`fetchFailStreak` after an OTA is if anything correct (fresh firmware,
+fresh escalation clock).
 
 ## Boot-health guard (`src/main.cpp::setup()`)
 

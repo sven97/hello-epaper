@@ -3,6 +3,7 @@
 #include "display.h"
 #include "devlog.h"
 #include "net.h"
+#include "ota_state.h"
 #include "photocache.h"
 #include "portal_html.h"
 #include "screencapture.h"
@@ -313,9 +314,10 @@ static void handleDebug() {
                           : String("off");
     page.replace("%OTA_STATE%", otaState);
 
+    OtaState os = otaStateLoad();
     String otaLast = "never";
-    if (lastOtaCheckEpoch > (uint32_t)CLOCK_SANE_EPOCH) {
-        time_t t = (time_t)lastOtaCheckEpoch;
+    if (os.lastCheckEpoch > (uint32_t)CLOCK_SANE_EPOCH) {
+        time_t t = (time_t)os.lastCheckEpoch;
         struct tm lt;
         localtime_r(&t, &lt);
         char buf[20];
@@ -325,8 +327,8 @@ static void handleDebug() {
     page.replace("%OTA_LAST%", otaLast);
 
     page.replace("%OTA_TRIAL%",
-                 otaPendingBuild ? "build " + String(otaPendingBuild) +
-                                       " (boot " + String(otaTrialBoots) + ")"
+                 os.pendingBuild ? "build " + String(os.pendingBuild) +
+                                       " (boot " + String(os.trialBoots) + ")"
                                  : String("none"));
 
     page.replace("%LOG%", htmlEscape(devLog.snapshot()));

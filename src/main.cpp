@@ -11,6 +11,7 @@
 #include "logic/quiet_hours.h"
 #include "logic/ota_trial.h"
 #include "logic/stuck_error.h"
+#include "ota_state.h"
 #include "net.h"
 #include "photocache.h"
 #include "portal.h"
@@ -26,10 +27,8 @@ RTC_DATA_ATTR uint32_t bootCount = 0;
 RTC_DATA_ATTR int32_t lastVbatMv = -1; // survives deep sleep, not reset/flash
 RTC_DATA_ATTR uint32_t fetchFailStreak = 0; // consecutive full-cycle failures
 RTC_DATA_ATTR bool stuckErrorShown = false; // one-time flag per outage
-RTC_DATA_ATTR uint32_t lastOtaCheckEpoch = 0;   // wall-clock of last manifest check
-RTC_DATA_ATTR uint32_t otaPendingBuild = 0;     // build on trial; 0 => none
-RTC_DATA_ATTR uint8_t otaTrialBoots = 0;
-RTC_DATA_ATTR uint8_t otaTrialFetchFails = 0;
+// OTA trial + cadence state is NVS-backed (ota_state.h), not RTC: the OTA
+// path esp_restart()s, and on the S3 that clears RTC_DATA_ATTR.
 
 // Read the battery and compute the wake-to-wake delta (RTC-persisted).
 static int32_t readBatteryWithDelta(int32_t &deltaMv, bool &haveDelta) {
@@ -70,18 +69,17 @@ static void maybeShowStuckError() {
 // quiet-exits still trips the boot budget. ConfirmGood is decided later,
 // in doFetchCycle(), the moment a photo actually renders.
 static void otaBootHealthGuard() {
-    if (otaPendingBuild == 0) return;
-    OtaTrialState ts{otaPendingBuild, (uint32_t)FW_BUILD_NUMBER,
-                     otaTrialBoots, otaTrialFetchFails, /*fetchSucceeded=*/false};
+    OtaState os = otaStateLoad();
+    if (os.pendingBuild == 0) return;
+    OtaTrialState ts{os.pendingBuild, (uint32_t)FW_BUILD_NUMBER,
+                     os.trialBoots, os.trialFetchFails, /*fetchSucceeded=*/false};
     switch (otaTrialVerdict(ts)) {
     case OtaTrialVerdict::Revert: {
         const esp_partition_t *prev = esp_ota_get_next_update_partition(nullptr);
         devLog.printf("ota: trial for build %u failed (boots=%u fails=%u) — reverting\n",
-                      otaPendingBuild, otaTrialBoots, otaTrialFetchFails);
+                      os.pendingBuild, os.trialBoots, os.trialFetchFails);
         if (prev && esp_ota_set_boot_partition(prev) == ESP_OK) {
-            otaPendingBuild = 0; // cleared only once the revert is committed
-            otaTrialBoots = 0;
-            otaTrialFetchFails = 0;
+            otaStateClearTrial(); // cleared only once the revert is committed
             delay(100);
             esp_restart();
         }
@@ -93,9 +91,9 @@ static void otaBootHealthGuard() {
         break;
     }
     case OtaTrialVerdict::Continue:
-        otaTrialBoots++;
+        otaStateSetTrialBoots(os.trialBoots + 1);
         devLog.printf("ota: build %u on trial (boot %u/%u)\n",
-                      otaPendingBuild, otaTrialBoots, OTA_TRIAL_MAX_BOOTS);
+                      os.pendingBuild, os.trialBoots + 1, OTA_TRIAL_MAX_BOOTS);
         break;
     default:
         break;
@@ -109,8 +107,7 @@ static void doFetchCycle(bool interactive) {
     bool forceRadioReset = fetchFailStreak > 0;
     if (!connectWifi(interactive, forceRadioReset)) {
         fetchFailStreak++;
-        if (otaPendingBuild != 0 && otaPendingBuild == (uint32_t)FW_BUILD_NUMBER)
-            otaTrialFetchFails++;
+        otaStateNoteCycleFail();
         if (interactive) {
             showError("Wi-Fi connection failed");
         } else {
@@ -123,8 +120,7 @@ static void doFetchCycle(bool interactive) {
     String err;
     if (!fetchImage(err)) {
         fetchFailStreak++;
-        if (otaPendingBuild != 0 && otaPendingBuild == (uint32_t)FW_BUILD_NUMBER)
-            otaTrialFetchFails++;
+        otaStateNoteCycleFail();
         if (interactive) {
             showError(err);
         } else {
@@ -144,19 +140,13 @@ static void doFetchCycle(bool interactive) {
     setLed(LedMode::Solid);
 
     // The just-flashed image rendered a photo — it works. Close the trial.
-    if (otaPendingBuild != 0 && otaPendingBuild == (uint32_t)FW_BUILD_NUMBER) {
-        devLog.printf("ota: build %u confirmed good\n", otaPendingBuild);
-        otaPendingBuild = 0;
-        otaTrialBoots = 0;
-        otaTrialFetchFails = 0;
-    }
+    if (otaStateNoteCycleOk())
+        devLog.printf("ota: build %u confirmed good\n", (uint32_t)FW_BUILD_NUMBER);
 
     // Unattended wakes only: check for a newer firmware now that a fresh
     // photo is up and the JPEG framebuffer is freed. May not return.
     if (!interactive)
-        maybeRunOtaCheck(lastOtaCheckEpoch, otaPendingBuild,
-                         otaTrialBoots, otaTrialFetchFails,
-                         batteryPercent(lastVbatMv));
+        maybeRunOtaCheck(batteryPercent(lastVbatMv));
 }
 
 // KEY1: status page + settings portal. Draw first (from NVS cache, no

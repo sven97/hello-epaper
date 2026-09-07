@@ -12,6 +12,7 @@
 #include "logic/url_template.h"
 #include "logic/firmware_manifest.h"
 #include "logic/firmware_update.h"
+#include "ota_state.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WiFiManager.h>
@@ -277,15 +278,14 @@ static int httpGetString(const String &url, String &body, size_t cap) {
     return code;
 }
 
-void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
-                      uint8_t &otaTrialBoots, uint8_t &otaTrialFetchFails,
-                      int batteryPct, bool force) {
+void maybeRunOtaCheck(int batteryPct, bool force) {
+    OtaState os = otaStateLoad();
     time_t now = time(nullptr);
     if (!force) {
         // Cadence: clock is sane here (syncClock() just ran in doFetchCycle()).
         if (now <= CLOCK_SANE_EPOCH) return;
-        if (lastOtaCheckEpoch != 0 &&
-            now - (time_t)lastOtaCheckEpoch < (time_t)settings.otaCheckSecs)
+        if (os.lastCheckEpoch != 0 &&
+            now - (time_t)os.lastCheckEpoch < (time_t)settings.otaCheckSecs)
             return;
     }
 
@@ -294,7 +294,7 @@ void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
         settings.otaEnabled,
         (uint32_t)FW_BUILD_NUMBER,
         hash.endsWith("-dirty"),
-        otaPendingBuild != 0,
+        os.pendingBuild != 0,
         batteryPct,
     };
     if (!shouldCheckForUpdate(gate)) {
@@ -308,7 +308,7 @@ void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
     }
 
     if (now > CLOCK_SANE_EPOCH)
-        lastOtaCheckEpoch = (uint32_t)now; // a failed fetch still counts
+        otaStateSetLastCheck((uint32_t)now); // a failed fetch still counts
 
     String body;
     int code = httpGetString(String(OTA_MANIFEST_URL), body, 4096);
@@ -350,16 +350,14 @@ void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
         return;
     }
 
-    // Commit trial bookkeeping BEFORE the flash: a brownout mid-write then
-    // still leaves a coherent "build N is on trial" record for the
+    // Commit the trial record (NVS) BEFORE the flash: a brownout mid-write
+    // then still leaves a coherent "build N is on trial" record for the
     // boot-health guard (which treats running!=pending as Revert).
-    otaPendingBuild = mi.build;
-    otaTrialBoots = 0;
-    otaTrialFetchFails = 0;
+    otaStateBeginTrial(mi.build);
 
     if (!Update.begin((size_t)len, U_FLASH)) {
         devLog.printf("ota: Update.begin failed: %s\n", Update.errorString());
-        otaPendingBuild = 0;
+        otaStateClearTrial();
         http.end();
         return;
     }
@@ -370,7 +368,7 @@ void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
         devLog.printf("ota: flash failed (%u/%d bytes): %s\n",
                       (unsigned)written, len, Update.errorString());
         Update.abort();
-        otaPendingBuild = 0; // nothing committed -- clear the trial
+        otaStateClearTrial(); // nothing committed -- clear the trial
         return;
     }
     devLog.printf("ota: build %u written, rebooting into it\n", mi.build);
@@ -384,9 +382,7 @@ void otaInstallNow() {
     // reboot. Same code path as the automatic update (maybeRunOtaCheck),
     // with only the cadence timer bypassed — the enabled / trusted-build /
     // battery / trial gates still apply. May not return.
-    maybeRunOtaCheck(lastOtaCheckEpoch, otaPendingBuild, otaTrialBoots,
-                     otaTrialFetchFails, batteryPercent(lastVbatMv),
-                     /*force=*/true);
+    maybeRunOtaCheck(batteryPercent(lastVbatMv), /*force=*/true);
 }
 
 OtaPeekResult otaPeek(uint32_t &latestBuild) {
@@ -394,12 +390,13 @@ OtaPeekResult otaPeek(uint32_t &latestBuild) {
     // compare, WITHOUT downloading or flashing anything. A manual check
     // still counts as a check, so it resets the auto cadence timer.
     latestBuild = 0;
+    OtaState os = otaStateLoad();
     String hash(FW_GIT_HASH);
     OtaGate gate{
         settings.otaEnabled,
         (uint32_t)FW_BUILD_NUMBER,
         hash.endsWith("-dirty"),
-        otaPendingBuild != 0,
+        os.pendingBuild != 0,
         batteryPercent(lastVbatMv),
     };
     if (!shouldCheckForUpdate(gate)) {
@@ -410,7 +407,7 @@ OtaPeekResult otaPeek(uint32_t &latestBuild) {
         return OtaPeekResult::Blocked;
     }
     time_t now = time(nullptr);
-    if (now > CLOCK_SANE_EPOCH) lastOtaCheckEpoch = (uint32_t)now;
+    if (now > CLOCK_SANE_EPOCH) otaStateSetLastCheck((uint32_t)now);
 
     String body;
     int code = httpGetString(String(OTA_MANIFEST_URL), body, 4096);

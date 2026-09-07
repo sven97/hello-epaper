@@ -78,13 +78,17 @@ static void otaBootHealthGuard() {
         const esp_partition_t *prev = esp_ota_get_next_update_partition(nullptr);
         devLog.printf("ota: trial for build %u failed (boots=%u fails=%u) — reverting\n",
                       otaPendingBuild, otaTrialBoots, otaTrialFetchFails);
-        otaPendingBuild = 0;
-        otaTrialBoots = 0;
-        otaTrialFetchFails = 0;
         if (prev && esp_ota_set_boot_partition(prev) == ESP_OK) {
+            otaPendingBuild = 0; // cleared only once the revert is committed
+            otaTrialBoots = 0;
+            otaTrialFetchFails = 0;
             delay(100);
             esp_restart();
         }
+        // Revert failed (passive slot has no valid image). Leave the trial
+        // state set: trialPending keeps maybeRunOtaCheck() from
+        // re-downloading the same bad build, and the next boot retries the
+        // revert in case the slot becomes usable.
         devLog.println("ota: revert failed — staying on current image");
         break;
     }

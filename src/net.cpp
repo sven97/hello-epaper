@@ -279,13 +279,15 @@ static int httpGetString(const String &url, String &body, size_t cap) {
 
 void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
                       uint8_t &otaTrialBoots, uint8_t &otaTrialFetchFails,
-                      int batteryPct) {
-    // Cadence: clock is sane here (syncClock() just ran in doFetchCycle()).
+                      int batteryPct, bool force) {
     time_t now = time(nullptr);
-    if (now <= CLOCK_SANE_EPOCH) return;
-    if (lastOtaCheckEpoch != 0 &&
-        now - (time_t)lastOtaCheckEpoch < (time_t)settings.otaCheckSecs)
-        return;
+    if (!force) {
+        // Cadence: clock is sane here (syncClock() just ran in doFetchCycle()).
+        if (now <= CLOCK_SANE_EPOCH) return;
+        if (lastOtaCheckEpoch != 0 &&
+            now - (time_t)lastOtaCheckEpoch < (time_t)settings.otaCheckSecs)
+            return;
+    }
 
     String hash(FW_GIT_HASH);
     OtaGate gate{
@@ -296,13 +298,17 @@ void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
         batteryPct,
     };
     if (!shouldCheckForUpdate(gate)) {
-        if (settings.otaEnabled && !gate.trialPending)
-            devLog.printf("ota: skipped (build=%u dirty=%d batt=%d%%)\n",
-                          gate.deviceBuild, (int)gate.deviceDirty, batteryPct);
+        if (force || (settings.otaEnabled && !gate.trialPending))
+            devLog.printf("ota: check skipped (enabled=%d build=%u dirty=%d "
+                          "trial=%d batt=%d%%)\n",
+                          (int)gate.enabled, gate.deviceBuild,
+                          (int)gate.deviceDirty, (int)gate.trialPending,
+                          batteryPct);
         return;
     }
 
-    lastOtaCheckEpoch = (uint32_t)now; // a failed fetch still counts
+    if (now > CLOCK_SANE_EPOCH)
+        lastOtaCheckEpoch = (uint32_t)now; // a failed fetch still counts
 
     String body;
     int code = httpGetString(String(OTA_MANIFEST_URL), body, 4096);
@@ -370,4 +376,15 @@ void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
     devLog.printf("ota: build %u written, rebooting into it\n", mi.build);
     delay(100);
     esp_restart();
+}
+
+void otaCheckNow() {
+    // Manual "check now" from the portal: same as maybeRunOtaCheck() but
+    // ignores the cadence timer (the user explicitly asked). The
+    // enabled / trusted-build / battery / trial gates still apply. Reuses
+    // main.cpp's RTC_DATA_ATTR state via state.h's externs. May not
+    // return (reboots on a successful flash).
+    maybeRunOtaCheck(lastOtaCheckEpoch, otaPendingBuild, otaTrialBoots,
+                     otaTrialFetchFails, batteryPercent(lastVbatMv),
+                     /*force=*/true);
 }

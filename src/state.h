@@ -14,3 +14,4 @@ extern int32_t lastVbatMv; // most recent battery read (RTC-persisted, main.cpp)
 extern uint32_t lastOtaCheckEpoch;
 extern uint32_t otaPendingBuild;
 extern uint8_t otaTrialBoots;
+extern uint8_t otaTrialFetchFails;

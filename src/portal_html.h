@@ -42,17 +42,21 @@ Tokens: {width} {height} {seed}</div>
 <input type="text" name="name" value="%NAME%" maxlength="24">
 <div class="note">lowercase letters, digits, hyphens</div>
 <label>Orientation</label><select name="rot">%ROT_OPTS%</select>
-<label><input type="checkbox" name="ota_en" %OTA_EN%> Auto-update firmware</label>
+</fieldset>
+<fieldset><legend>Firmware</legend>
+<div class="note">Running <b>%HASH%</b> &middot; build %BUILD%</div>
+<label><input type="checkbox" name="ota_en" %OTA_EN%> Auto-update on scheduled wakes</label>
 <label>Check for updates</label><select name="ota_secs">%OTA_OPTS%</select>
 </fieldset>
 <button class="primary" type="submit">Save &amp; apply</button>
 </form>
 <form method="POST" action="/action/newpic" style="margin-top:1rem">
 <button type="submit">Fetch new picture now</button></form>
+<form method="POST" action="/action/checkupdate" style="margin-top:1rem">
+<button type="submit">Check for firmware update now</button></form>
 <form method="POST" action="/action/forgetwifi" style="margin-top:1rem"
 onsubmit="return confirm('Forget Wi-Fi and reopen the setup hotspot?')">
 <button class="danger" type="submit">Forget Wi-Fi…</button></form>
-<p class="note" style="margin-top:1.4rem">firmware %HASH% &middot; build %BUILD%</p>
 </body></html>)HTML";
 
 inline const char PORTAL_DONE_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>

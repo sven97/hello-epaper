@@ -25,10 +25,17 @@ bool fetchImage(String &err);
 // verification, sets the trial bookkeeping, and reboots (does not
 // return). Any failure logs one line and returns — never propagates. The
 // four counters are main.cpp's RTC_DATA_ATTR state, passed by reference
-// so this owns none of it.
+// so this owns none of it. force=true skips only the cadence timer (for
+// the portal's manual "check now" button) — every other gate still holds.
 void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
                       uint8_t &otaTrialBoots, uint8_t &otaTrialFetchFails,
-                      int batteryPct);
+                      int batteryPct, bool force = false);
+
+// Portal "Check for firmware update now": maybeRunOtaCheck() with the
+// cadence timer bypassed, against main.cpp's RTC state (via state.h).
+// Blocks for the manifest GET and, if a newer build exists, the download
+// + flash; reboots on success. Safe to call from an HTTP handler.
+void otaCheckNow();
 
 // Detect the UTC offset from the network's public IP, then NTP-sync.
 // Returns false if NTP never synced (offset may still be cached-stale).

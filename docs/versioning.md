@@ -19,3 +19,16 @@ To find out what's actually flashed on a board, hit `/log` or `/debug` and
 read the hash — then `git show <hash>` locally to see what it was built
 from. If a build ever runs outside a git checkout (e.g. a source tarball),
 `FW_GIT_HASH` falls back to `"unknown"` rather than failing the build.
+
+## `FW_BUILD_NUMBER` — the auto-update ordering key
+
+The git hash identifies *which* commit a build came from but can't answer
+"is this newer than what I'm running" — hashes don't order. The on-device
+auto-update path (see
+`docs/superpowers/specs/2026-09-06-auto-firmware-update-design.md`) needs
+that answer, so `tools/version.py` also stamps `FW_BUILD_NUMBER`:
+`git rev-list --count HEAD`, the commit count reachable from the current
+commit. Monotonic on a linear `main`. Outside a git checkout it falls
+back to `0`, which the firmware treats as "never auto-update" — a build
+with no provenance can't reason about "newer". Like the hash, it is never
+hand-edited; CI and the local build derive it the same way.

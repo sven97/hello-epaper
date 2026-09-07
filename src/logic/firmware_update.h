@@ -15,11 +15,17 @@ struct OtaGate {
     int      batteryPct;   // batteryPercent(lastVbatMv)
 };
 
-// Worth fetching the manifest at all this wake? (Cadence is enforced
-// separately by the RTC lastOtaCheckEpoch clock in the caller.)
-inline bool shouldCheckForUpdate(const OtaGate &g) {
-    return g.enabled && !g.deviceDirty && !g.trialPending
+// Manual portal check/install: the user asked, so the "auto-update"
+// toggle doesn't apply -- but every safety gate still does.
+inline bool canManualUpdate(const OtaGate &g) {
+    return !g.deviceDirty && !g.trialPending
         && g.deviceBuild > 0 && g.batteryPct >= OTA_MIN_BATTERY_PCT;
+}
+
+// Worth fetching the manifest at all this wake? (Cadence is enforced
+// separately by the lastCheckEpoch clock in the caller.)
+inline bool shouldCheckForUpdate(const OtaGate &g) {
+    return g.enabled && canManualUpdate(g);
 }
 
 // Given a parsed manifest build number, flash now?

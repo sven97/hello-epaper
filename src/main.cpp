@@ -2,12 +2,14 @@
 #include <Arduino.h>
 #include <WiFiManager.h>
 #include "driver/gpio.h"
+#include <esp_ota_ops.h>
 #include <time.h>
 
 #include "config.h"
 #include "display.h"
 #include "devlog.h"
 #include "logic/quiet_hours.h"
+#include "logic/ota_trial.h"
 #include "logic/stuck_error.h"
 #include "net.h"
 #include "photocache.h"
@@ -24,6 +26,10 @@ RTC_DATA_ATTR uint32_t bootCount = 0;
 RTC_DATA_ATTR int32_t lastVbatMv = -1; // survives deep sleep, not reset/flash
 RTC_DATA_ATTR uint32_t fetchFailStreak = 0; // consecutive full-cycle failures
 RTC_DATA_ATTR bool stuckErrorShown = false; // one-time flag per outage
+RTC_DATA_ATTR uint32_t lastOtaCheckEpoch = 0;   // wall-clock of last manifest check
+RTC_DATA_ATTR uint32_t otaPendingBuild = 0;     // build on trial; 0 => none
+RTC_DATA_ATTR uint8_t otaTrialBoots = 0;
+RTC_DATA_ATTR uint8_t otaTrialFetchFails = 0;
 
 // Read the battery and compute the wake-to-wake delta (RTC-persisted).
 static int32_t readBatteryWithDelta(int32_t &deltaMv, bool &haveDelta) {
@@ -59,6 +65,39 @@ static void maybeShowStuckError() {
     showError("Wi-Fi hasn't reconnected in over 6h - press KEY1 to check");
 }
 
+// App-level OTA rollback. Runs every wake while an image is on trial,
+// BEFORE the quiet-hours/pinned fast-exit so a boot loop that only ever
+// quiet-exits still trips the boot budget. ConfirmGood is decided later,
+// in doFetchCycle(), the moment a photo actually renders.
+static void otaBootHealthGuard() {
+    if (otaPendingBuild == 0) return;
+    OtaTrialState ts{otaPendingBuild, (uint32_t)FW_BUILD_NUMBER,
+                     otaTrialBoots, otaTrialFetchFails, /*fetchSucceeded=*/false};
+    switch (otaTrialVerdict(ts)) {
+    case OtaTrialVerdict::Revert: {
+        const esp_partition_t *prev = esp_ota_get_next_update_partition(nullptr);
+        devLog.printf("ota: trial for build %u failed (boots=%u fails=%u) — reverting\n",
+                      otaPendingBuild, otaTrialBoots, otaTrialFetchFails);
+        otaPendingBuild = 0;
+        otaTrialBoots = 0;
+        otaTrialFetchFails = 0;
+        if (prev && esp_ota_set_boot_partition(prev) == ESP_OK) {
+            delay(100);
+            esp_restart();
+        }
+        devLog.println("ota: revert failed — staying on current image");
+        break;
+    }
+    case OtaTrialVerdict::Continue:
+        otaTrialBoots++;
+        devLog.printf("ota: build %u on trial (boot %u/%u)\n",
+                      otaPendingBuild, otaTrialBoots, OTA_TRIAL_MAX_BOOTS);
+        break;
+    default:
+        break;
+    }
+}
+
 static void doFetchCycle(bool interactive) {
     setLed(LedMode::Heartbeat);
     // Every retry after the first failure of a new outage forces a fresh
@@ -66,6 +105,8 @@ static void doFetchCycle(bool interactive) {
     bool forceRadioReset = fetchFailStreak > 0;
     if (!connectWifi(interactive, forceRadioReset)) {
         fetchFailStreak++;
+        if (otaPendingBuild != 0 && otaPendingBuild == (uint32_t)FW_BUILD_NUMBER)
+            otaTrialFetchFails++;
         if (interactive) {
             showError("Wi-Fi connection failed");
         } else {
@@ -78,6 +119,8 @@ static void doFetchCycle(bool interactive) {
     String err;
     if (!fetchImage(err)) {
         fetchFailStreak++;
+        if (otaPendingBuild != 0 && otaPendingBuild == (uint32_t)FW_BUILD_NUMBER)
+            otaTrialFetchFails++;
         if (interactive) {
             showError(err);
         } else {
@@ -95,6 +138,21 @@ static void doFetchCycle(bool interactive) {
     epaper.update();
     devLog.println("done");
     setLed(LedMode::Solid);
+
+    // The just-flashed image rendered a photo — it works. Close the trial.
+    if (otaPendingBuild != 0 && otaPendingBuild == (uint32_t)FW_BUILD_NUMBER) {
+        devLog.printf("ota: build %u confirmed good\n", otaPendingBuild);
+        otaPendingBuild = 0;
+        otaTrialBoots = 0;
+        otaTrialFetchFails = 0;
+    }
+
+    // Unattended wakes only: check for a newer firmware now that a fresh
+    // photo is up and the JPEG framebuffer is freed. May not return.
+    if (!interactive)
+        maybeRunOtaCheck(lastOtaCheckEpoch, otaPendingBuild,
+                         otaTrialBoots, otaTrialFetchFails,
+                         batteryPercent(lastVbatMv));
 }
 
 // KEY1: status page + settings portal. Draw first (from NVS cache, no
@@ -185,6 +243,8 @@ void setup() {
     // non-fetch wakes come out as UTC. Fetch wakes overwrite it with a
     // freshly detected (or manual) offset in syncClock().
     applyUtcOffset(prefs.getLong("tzOff", 0));
+
+    otaBootHealthGuard(); // may esp_restart() (rollback) — never returns then
 
     esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
     uint64_t btnBits = (cause == ESP_SLEEP_WAKEUP_EXT1)

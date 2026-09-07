@@ -378,13 +378,53 @@ void maybeRunOtaCheck(uint32_t &lastOtaCheckEpoch, uint32_t &otaPendingBuild,
     esp_restart();
 }
 
-void otaCheckNow() {
-    // Manual "check now" from the portal: same as maybeRunOtaCheck() but
-    // ignores the cadence timer (the user explicitly asked). The
-    // enabled / trusted-build / battery / trial gates still apply. Reuses
-    // main.cpp's RTC_DATA_ATTR state via state.h's externs. May not
-    // return (reboots on a successful flash).
+void otaInstallNow() {
+    // Step 2 of the portal's manual update: re-validate against the
+    // manifest and, if a newer build is still there, download + flash +
+    // reboot. Same code path as the automatic update (maybeRunOtaCheck),
+    // with only the cadence timer bypassed — the enabled / trusted-build /
+    // battery / trial gates still apply. May not return.
     maybeRunOtaCheck(lastOtaCheckEpoch, otaPendingBuild, otaTrialBoots,
                      otaTrialFetchFails, batteryPercent(lastVbatMv),
                      /*force=*/true);
+}
+
+OtaPeekResult otaPeek(uint32_t &latestBuild) {
+    // Step 1 of the portal's manual update: fetch + parse the manifest and
+    // compare, WITHOUT downloading or flashing anything. A manual check
+    // still counts as a check, so it resets the auto cadence timer.
+    latestBuild = 0;
+    String hash(FW_GIT_HASH);
+    OtaGate gate{
+        settings.otaEnabled,
+        (uint32_t)FW_BUILD_NUMBER,
+        hash.endsWith("-dirty"),
+        otaPendingBuild != 0,
+        batteryPercent(lastVbatMv),
+    };
+    if (!shouldCheckForUpdate(gate)) {
+        devLog.printf("ota: peek blocked (enabled=%d build=%u dirty=%d trial=%d "
+                      "batt=%d%%)\n",
+                      (int)gate.enabled, gate.deviceBuild, (int)gate.deviceDirty,
+                      (int)gate.trialPending, gate.batteryPct);
+        return OtaPeekResult::Blocked;
+    }
+    time_t now = time(nullptr);
+    if (now > CLOCK_SANE_EPOCH) lastOtaCheckEpoch = (uint32_t)now;
+
+    String body;
+    int code = httpGetString(String(OTA_MANIFEST_URL), body, 4096);
+    if (code != HTTP_CODE_OK || body.isEmpty()) {
+        devLog.printf("ota: manifest fetch failed (%d)\n", code);
+        return OtaPeekResult::Unreachable;
+    }
+    ManifestInfo mi;
+    if (!parseManifest(body.c_str(), boardKeyLower().c_str(), mi)) {
+        devLog.println("ota: manifest parse failed");
+        return OtaPeekResult::Unreachable;
+    }
+    latestBuild = mi.build;
+    devLog.printf("ota: peek — running %u, latest %u\n", gate.deviceBuild, mi.build);
+    return mi.build > gate.deviceBuild ? OtaPeekResult::Available
+                                       : OtaPeekResult::UpToDate;
 }

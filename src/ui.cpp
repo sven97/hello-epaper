@@ -79,29 +79,30 @@ ScreenContent gatherLiveContent(int32_t vbatMv, int32_t deltaMv, bool haveDelta)
 }
 
 // ---- Fixed-grid renderer -------------------------------------------------
-// Every font size the grid uses is already compiled in (see the header
-// comment above). No fitting: role -> font is a fixed map.
-enum class Role { Title, Big, Subhead, Body, Small };
+// Four type styles, three sizes, two weights -- every face is already
+// compiled in (see the header comment). No fitting: role -> font is fixed.
+//   Title   bold 24pt  "Paperframe" only
+//   Value   bold 18pt  the one hero number ("in 15m")
+//   Heading bold 12pt  zone headings + the device id
+//   Body    reg  12pt  everything else (labels, instructions, URLs, legend)
+enum class Role { Title, Value, Heading, Body };
 
 static void useFont(Role r) {
     switch (r) {
         case Role::Title:   epaper.setFreeFont(&FreeSansBold24pt7b); break;
-        case Role::Big:     epaper.setFreeFont(&FreeSansBold18pt7b); break;
-        case Role::Subhead: epaper.setFreeFont(&FreeSansBold12pt7b); break;
+        case Role::Value:   epaper.setFreeFont(&FreeSansBold18pt7b); break;
+        case Role::Heading: epaper.setFreeFont(&FreeSansBold12pt7b); break;
         case Role::Body:    epaper.setFreeFont(&FreeSans12pt7b);     break;
-        case Role::Small:   epaper.setFreeFont(&FreeSans9pt7b);      break;
     }
 }
 
-// Nominal line advance per role (px) -- tuned for vertical rhythm, not
-// measured; the panel has ample vertical slack. See Task 6.
+// Nominal line advance per role (px) -- tuned for vertical rhythm.
 static int lineH(Role r) {
     switch (r) {
-        case Role::Title:   return 60;
-        case Role::Big:     return 46;
-        case Role::Subhead: return 34;
-        case Role::Body:    return 30;
-        default:            return 24;
+        case Role::Title:   return 58;
+        case Role::Value:   return 42;
+        case Role::Heading: return 30;
+        default:            return 28; // Body
     }
 }
 
@@ -111,6 +112,14 @@ static void text(const char *s, int x, int y, Role r, uint8_t datum = TL_DATUM) 
     epaper.setTextSize(1);
     useFont(r);
     epaper.drawString(s, x, y);
+}
+
+// Text set to the vertical centre of the 48px icon column at (iconX,iconY),
+// so icon + label line up regardless of font size.
+static void iconRow(const uint8_t *icon, const char *label, int iconX, int iconY,
+                    Role labelRole) {
+    epaper.drawBitmap(iconX, iconY, icon, ICON_W, ICON_H, TFT_BLACK);
+    text(label, iconX + ICON_W + 16, iconY + ICON_H / 2, labelRole, ML_DATUM);
 }
 
 static const uint8_t *batteryIcon(int pct) {
@@ -167,29 +176,28 @@ void drawFrameScreen(ScreenState state, const ScreenContent &content) {
     // ---- Header
     text(d.title, leftX, y, Role::Title);
     y += lineH(Role::Title);
-    text(d.versionLine, leftX, y, Role::Small);
-    y += lineH(Role::Small) + GRID_ZONE_PAD;
+    text(d.versionLine, leftX, y, Role::Body);
+    y += lineH(Role::Body) + GRID_ZONE_PAD;
     rule(y);
     y += GRID_ZONE_PAD;
 
-    // ---- Status band: next-refresh (left cols 1-6), battery + Wi-Fi (right 7-12)
+    // ---- Status band: next-refresh (left cols 1-6), battery + Wi-Fi (right 7-12).
+    // The right column is two icon rows; the left column is centred against it.
     {
-        text(d.nextLabel, leftX, y, Role::Small);
-        text(d.nextValue, leftX, y + lineH(Role::Small), Role::Big);
+        const int rowGap = 20;
+        const int rightH = 2 * ICON_H + rowGap;
+        const int leftH = lineH(Role::Body) + lineH(Role::Value);
+        const int leftTop = y + (rightH - leftH) / 2;
+        text(d.nextLabel, leftX, leftTop, Role::Body);
+        text(d.nextValue, leftX, leftTop + lineH(Role::Body), Role::Value);
 
-        const int r0 = y;
-        epaper.drawBitmap(rightX, r0, batteryIcon(d.batteryPct), ICON_W, ICON_H, TFT_BLACK);
         char pct[8];
         snprintf(pct, sizeof(pct), "%d%%", d.batteryPct);
-        text(pct, rightX + ICON_W + 14, r0 + 8, Role::Body);
+        iconRow(batteryIcon(d.batteryPct), pct, rightX, y, Role::Body);
+        iconRow(wifiIcon(d.wifiBase), d.wifiHeading, rightX, y + ICON_H + rowGap,
+                Role::Heading);
 
-        const int r1 = r0 + ICON_H + 16;
-        text(d.wifiHeading, rightX, r1, Role::Subhead);
-        const int r2 = r1 + lineH(Role::Subhead);
-        epaper.drawBitmap(rightX, r2, wifiIcon(d.wifiBase), ICON_W, ICON_H, TFT_BLACK);
-        text(d.wifiLabel, rightX + ICON_W + 14, r2 + 8, Role::Body);
-
-        y = r2 + ICON_H + GRID_ZONE_PAD;
+        y += rightH + GRID_ZONE_PAD;
     }
     rule(y);
     y += GRID_ZONE_PAD;
@@ -204,42 +212,43 @@ void drawFrameScreen(ScreenState state, const ScreenContent &content) {
         drawQrCode(String(d.qrPayload), qrCx, qrCy, scale);
 
         const int tx = ox + gridColX(6);
-        text(d.actionHeading, tx, y, Role::Subhead);
-        text(d.actionLine1, tx, y + 44, Role::Body);
-        text(d.actionLine2, tx, y + 44 + lineH(Role::Body), Role::Body);
-        text(d.urlPrimary, tx, y + 44 + 2 * lineH(Role::Body) + 12, Role::Body);
-        if (d.urlSecondary[0])
-            text(d.urlSecondary, tx, y + 44 + 3 * lineH(Role::Body) + 14, Role::Small);
+        int ty = y;
+        text(d.actionHeading, tx, ty, Role::Heading);   ty += lineH(Role::Heading) + 8;
+        text(d.actionLine1, tx, ty, Role::Body);        ty += lineH(Role::Body);
+        text(d.actionLine2, tx, ty, Role::Body);        ty += lineH(Role::Body) + 12;
+        text(d.urlPrimary, tx, ty, Role::Body);         ty += lineH(Role::Body);
+        text(d.urlSecondary, tx, ty, Role::Body);       ty += lineH(Role::Body);
 
-        const int textH = 44 + 3 * lineH(Role::Body) + 14 + lineH(Role::Small);
-        y += (qrPx > textH ? qrPx : textH) + GRID_ZONE_PAD;
+        y += (qrPx > ty - y ? qrPx : ty - y) + GRID_ZONE_PAD;
     }
     rule(y);
     y += GRID_ZONE_PAD;
 
     // ---- Device: id (left cols 1-6), panel spec + swatch (right 7-12)
     {
-        text(d.deviceIdLabel, leftX, y, Role::Small);
-        text(d.deviceId, leftX, y + lineH(Role::Small), Role::Subhead);
+        text(d.deviceIdLabel, leftX, y, Role::Body);
+        text(d.deviceId, leftX, y + lineH(Role::Body), Role::Heading);
 
         text(d.panelDesc, rightX, y, Role::Body);
         text(d.resLine, rightX, y + lineH(Role::Body), Role::Body);
-        drawColorSwatch(rightX, y + 2 * lineH(Role::Body) + 8, 44, 34);
+        drawColorSwatch(rightX, y + 2 * lineH(Role::Body) + 10, 44, 34);
 
-        y += 2 * lineH(Role::Body) + 8 + 34 + GRID_ZONE_PAD;
+        y += 2 * lineH(Role::Body) + 10 + 34 + GRID_ZONE_PAD;
     }
     rule(y);
     y += GRID_ZONE_PAD;
 
-    // ---- Legend: thirds (cols 1-4 / 5-8 / 9-12), keycap + phrase
+    // ---- Legend: thirds (cols 1-4 / 5-8 / 9-12), keycap + phrase, all
+    // centred on one baseline.
     {
         const int startCol[3] = {1, 5, 9};
+        const int midY = y + 17;
         for (int i = 0; i < 3; i++) {
             if (!d.legend[i] || !d.legend[i][0]) continue;
             const int cx = ox + gridColX(startCol[i]);
             char digit[2] = {char('1' + i), '\0'};
-            drawKeycap(digit, cx + 18, y + 16, 34, TFT_BLACK);
-            text(d.legend[i], cx + 46, y + 16, Role::Body, ML_DATUM);
+            drawKeycap(digit, cx + 17, midY, 34, TFT_BLACK);
+            text(d.legend[i], cx + 46, midY, Role::Body, ML_DATUM);
         }
     }
 

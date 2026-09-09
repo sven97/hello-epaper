@@ -96,11 +96,10 @@ void test_normal_ip_line_present_then_absent() {
     TEST_ASSERT_EQUAL_STRING("", d.urlSecondary);
 }
 
-void test_normal_wifi_heading_is_ssid_and_label_from_base() {
+void test_normal_wifi_heading_is_ssid_icon_selector_from_base() {
     StatusData d = build(ScreenState::Normal, normalContent());
     TEST_ASSERT_EQUAL_STRING("Studio Wi-Fi", d.wifiHeading);
-    TEST_ASSERT_EQUAL_STRING("Strong signal", d.wifiLabel);
-    TEST_ASSERT_EQUAL_STRING("strong", d.wifiBase);
+    TEST_ASSERT_EQUAL_STRING("strong", d.wifiBase); // signal-strength icon selector
 }
 
 void test_normal_panel_spec_passthrough() {
@@ -146,7 +145,7 @@ int main() {
     RUN_TEST(test_normal_version_line_is_build_number);
     RUN_TEST(test_normal_legend_and_qr_payload);
     RUN_TEST(test_normal_ip_line_present_then_absent);
-    RUN_TEST(test_normal_wifi_heading_is_ssid_and_label_from_base);
+    RUN_TEST(test_normal_wifi_heading_is_ssid_icon_selector_from_base);
     RUN_TEST(test_normal_panel_spec_passthrough);
     RUN_TEST(test_onboarding_qr_is_wifi_join_and_legend_trimmed);
     RUN_TEST(test_error_legend_and_wifi_heading);

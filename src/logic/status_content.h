@@ -38,8 +38,7 @@ struct StatusData {
 
     int         batteryPct = 0;
     const char *wifiHeading = "";      // SSID, or "Not connected" / "Connection failed"
-    const char *wifiLabel = "";        // "Strong signal" etc., or ""
-    char        wifiBase[16] = {0};    // icon selector, copied through
+    char        wifiBase[16] = {0};    // signal-strength icon selector, copied through
 
     const char *actionHeading = "Open settings";
     const char *actionLine1 = "";
@@ -79,21 +78,9 @@ inline void deviceIdFromMac(char *out, size_t cap, uint64_t mac) {
     snprintf(out, cap, "PF-%04X", (unsigned)(mac & 0xFFFFu));
 }
 
-namespace statuscontent_detail {
-
-inline const char *wifiPhrase(const char *base) {
-    if (strcmp(base, "strong") == 0) return "Strong signal";
-    if (strcmp(base, "fair") == 0)   return "Fair signal";
-    if (strcmp(base, "weak") == 0)   return "Weak signal";
-    return "";
-}
-
-} // namespace statuscontent_detail
-
 inline StatusData buildStatusData(ScreenState state, const ScreenContent &c,
                                   uint32_t buildNumber, const char *apName,
                                   const char *panelDesc, int panelW, int panelH) {
-    using namespace statuscontent_detail;
     StatusData d{};
 
     snprintf(d.versionLine, sizeof(d.versionLine), "Firmware build %u",
@@ -119,7 +106,6 @@ inline StatusData buildStatusData(ScreenState state, const ScreenContent &c,
         case ScreenState::Normal:
             d.nextLabel = "Next image refresh";
             d.wifiHeading = c.wifiSsid[0] ? c.wifiSsid : "Wi-Fi";
-            d.wifiLabel = wifiPhrase(c.wifiBase);
             d.actionHeading = "Open settings";
             d.actionLine1 = "Scan with your phone.";
             d.actionLine2 = "Connect to the same Wi-Fi.";
@@ -134,7 +120,6 @@ inline StatusData buildStatusData(ScreenState state, const ScreenContent &c,
             d.nextValue[0] = '\0';
             strncpy(d.nextValue, "Not connected yet", sizeof(d.nextValue) - 1);
             d.wifiHeading = "Not connected";
-            d.wifiLabel = "";
             d.actionHeading = "Join the setup network";
             d.actionLine1 = "Scan, or join the Wi-Fi below.";
             d.actionLine2 = "Then open http://192.168.4.1";
@@ -149,7 +134,6 @@ inline StatusData buildStatusData(ScreenState state, const ScreenContent &c,
         case ScreenState::Error:
             d.nextLabel = "Next image refresh";
             d.wifiHeading = "Connection failed";
-            d.wifiLabel = c.wifiSsid[0] ? c.wifiSsid : "";
             d.actionHeading = "Open settings";
             d.actionLine1 = c.errorMsg[0] ? c.errorMsg : "Something went wrong.";
             d.actionLine2 = "Connect to the same Wi-Fi.";

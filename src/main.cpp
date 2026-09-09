@@ -1,4 +1,5 @@
-// EE02 e-paper photo frame — wake, act, deep-sleep. See README.md.
+// Paperframe — EE02 e-ink image display firmware: wake, act, deep-sleep.
+// See README.md.
 #include <Arduino.h>
 #include <WiFiManager.h>
 #include "driver/gpio.h"

@@ -12,9 +12,9 @@ const char *wakeReason();
 // doesn't describe.
 void recordFetchMetadata();
 
-// Draws `state`'s unified frame (header/status/action/legend, see the
-// design spec) into the sprite only -- caller wraps the call in a
-// PortraitScope and calls epaper.update() afterward. Shared by all three
+// Draws `state` on the fixed 12-column grid (header / status band /
+// action / device / legend -- see the 2026-09-09 design) into the sprite
+// only; caller calls epaper.update() afterward. Shared by all three
 // screen call sites (drawStatusScreen/showProvisioningScreen/showError),
 // each a thin wrapper: gather its own ScreenContent, call this.
 void drawFrameScreen(ScreenState state, const ScreenContent &content);
@@ -25,7 +25,7 @@ void drawFrameScreen(ScreenState state, const ScreenContent &content);
 // battery read.
 ScreenContent gatherLiveContent(int32_t vbatMv, int32_t deltaMv, bool haveDelta);
 
-// Full-screen status page: wake/battery/wifi/refresh info, the settings
-// portal URL + QR code, and a button legend with live state. Draws,
-// forces portrait for the duration, and calls epaper.update() itself.
+// Full-screen status page: next-refresh / battery / Wi-Fi, the settings
+// portal URL + QR code, device details, and the button legend. Draws and
+// calls epaper.update() itself.
 void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta);

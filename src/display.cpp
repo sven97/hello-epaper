@@ -185,10 +185,15 @@ bool renderJpeg(uint8_t *buf, size_t len) {
 // once failures have persisted long enough to escalate (see main.cpp's
 // maybeShowStuckError()). An ordinary unattended failure still keeps the
 // photo untouched; this is the deliberate exception.
-void showError(const String &msg) {
+void showError(const String &msg, ErrorKind kind) {
     ScreenContent content = gatherLiveContent(lastVbatMv, 0, false);
-    strncpy(content.wifiBase, "failed", sizeof(content.wifiBase) - 1);
+    content.errorKind = kind;
     strncpy(content.errorMsg, msg.c_str(), sizeof(content.errorMsg) - 1);
+    // A Wi-Fi failure blanks the signal row; an image failure leaves the
+    // real SSID/signal that gatherLiveContent() read from the last good
+    // connection -- the network isn't the problem.
+    if (kind == ErrorKind::Wifi)
+        strncpy(content.wifiBase, "failed", sizeof(content.wifiBase) - 1);
     snapshotPrevious();
     PortraitScope portrait;
     // Error card over the last good image (white only if there's no cache).

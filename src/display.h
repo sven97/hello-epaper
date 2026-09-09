@@ -1,6 +1,7 @@
 #pragma once
 #include <TFT_eSPI.h> // Seeed_GFX; provides EPaper for the selected combo
 #include "icons.h"
+#include "logic/status_content.h" // ScreenState, ErrorKind, ScreenContent
 
 extern EPaper epaper;
 
@@ -49,8 +50,9 @@ void drawKeycap(const char *digit, int cx, int cy, int sizePx, uint32_t fgColor)
 // panel's palette, and write it into the sprite (no update()).
 bool renderJpeg(uint8_t *buf, size_t len);
 
-// Full-panel error screen. Gathers live battery/Wi-Fi/next-fetch state
-// (see ui.h's gatherLiveContent()) plus `msg`, then draws the unified
-// frame's Error state and calls update(). Only drawn when someone is
+// Error card over the retained image. `kind` picks the framing: Wifi
+// blanks the signal row ("Wi-Fi problem"), Image keeps the real SSID +
+// signal ("Image source problem") since the network is fine. `msg` is the
+// specific reason, shown in the action zone. Only drawn when someone is
 // watching (button-initiated actions) -- unattended wakes keep the photo.
-void showError(const String &msg);
+void showError(const String &msg, ErrorKind kind = ErrorKind::Wifi);

@@ -122,14 +122,28 @@ void test_onboarding_qr_is_wifi_join_and_legend_trimmed() {
 }
 
 // ---- buildStatusData: Error --------------------------------
-void test_error_legend_and_wifi_heading() {
+void test_error_wifi_kind_blanks_the_signal_row() {
     ScreenContent c = normalContent();
-    strncpy(c.errorMsg, "image server said HTTP 404", sizeof(c.errorMsg) - 1);
+    c.errorKind = ErrorKind::Wifi;
+    strncpy(c.errorMsg, "Wi-Fi connection failed", sizeof(c.errorMsg) - 1);
     StatusData d = build(ScreenState::Error, c);
     TEST_ASSERT_EQUAL_STRING("Status", d.legend[0]);
     TEST_ASSERT_EQUAL_STRING("Retry", d.legend[1]);
     TEST_ASSERT_EQUAL_STRING("Pin image", d.legend[2]);
     TEST_ASSERT_EQUAL_STRING("Connection failed", d.wifiHeading);
+    TEST_ASSERT_EQUAL_STRING("Wi-Fi problem", d.actionHeading);
+    TEST_ASSERT_TRUE(strstr(d.actionLine1, "Wi-Fi connection failed") != nullptr);
+}
+
+void test_error_image_kind_keeps_the_real_ssid() {
+    ScreenContent c = normalContent(); // wifiSsid = "Studio Wi-Fi", base = "strong"
+    c.errorKind = ErrorKind::Image;
+    strncpy(c.errorMsg, "image server said HTTP 404", sizeof(c.errorMsg) - 1);
+    StatusData d = build(ScreenState::Error, c);
+    TEST_ASSERT_EQUAL_STRING("Retry", d.legend[1]);
+    TEST_ASSERT_EQUAL_STRING("Studio Wi-Fi", d.wifiHeading);   // network is fine
+    TEST_ASSERT_EQUAL_STRING("strong", d.wifiBase);            // real signal icon
+    TEST_ASSERT_EQUAL_STRING("Image source problem", d.actionHeading);
     TEST_ASSERT_TRUE(strstr(d.actionLine1, "HTTP 404") != nullptr);
 }
 
@@ -148,6 +162,7 @@ int main() {
     RUN_TEST(test_normal_wifi_heading_is_ssid_icon_selector_from_base);
     RUN_TEST(test_normal_panel_spec_passthrough);
     RUN_TEST(test_onboarding_qr_is_wifi_join_and_legend_trimmed);
-    RUN_TEST(test_error_legend_and_wifi_heading);
+    RUN_TEST(test_error_wifi_kind_blanks_the_signal_row);
+    RUN_TEST(test_error_image_kind_keeps_the_real_ssid);
     return UNITY_END();
 }

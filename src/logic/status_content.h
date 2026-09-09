@@ -13,6 +13,11 @@
 
 enum class ScreenState : uint8_t { Normal, Onboarding, Error };
 
+// Which layer failed -- the Error state renders these differently: a Wi-Fi
+// failure blanks the signal row, an image failure keeps it (the network is
+// fine, the image source isn't).
+enum class ErrorKind : uint8_t { Wifi, Image };
+
 // Everything a caller (ui.cpp / net.cpp / display.cpp) gathers per draw.
 struct ScreenContent {
     int  batteryPct = 0;
@@ -23,6 +28,7 @@ struct ScreenContent {
     char lastIp[24] = {0};      // "192.168.1.42"; "" when never connected
     char deviceId[12] = {0};    // "PF-A82F"
     char errorMsg[64] = {0};    // Error-state instruction text; "" elsewhere
+    ErrorKind errorKind = ErrorKind::Wifi; // Error state only
 };
 
 // Resolved strings for every zone. `const char *` fields point either at
@@ -133,14 +139,23 @@ inline StatusData buildStatusData(ScreenState state, const ScreenContent &c,
 
         case ScreenState::Error:
             d.nextLabel = "Next image refresh";
-            d.wifiHeading = "Connection failed";
-            d.actionHeading = "Open settings";
-            d.actionLine1 = c.errorMsg[0] ? c.errorMsg : "Something went wrong.";
-            d.actionLine2 = "Connect to the same Wi-Fi.";
             d.legend[0] = "Status";
             d.legend[1] = "Retry";
             d.legend[2] = "Pin image";
             snprintf(d.qrPayload, sizeof(d.qrPayload), "%s", c.settingsUrl);
+            if (c.errorKind == ErrorKind::Image) {
+                // The network is up; the image source is the problem. Keep
+                // the real SSID + signal so the user isn't sent chasing Wi-Fi.
+                d.wifiHeading = c.wifiSsid[0] ? c.wifiSsid : "Wi-Fi";
+                d.actionHeading = "Image source problem";
+                d.actionLine1 = c.errorMsg[0] ? c.errorMsg : "Couldn't load the image.";
+                d.actionLine2 = "Retry, or check the URL in settings.";
+            } else {
+                d.wifiHeading = "Connection failed";
+                d.actionHeading = "Wi-Fi problem";
+                d.actionLine1 = c.errorMsg[0] ? c.errorMsg : "Couldn't reach the network.";
+                d.actionLine2 = "Check your network, then Retry.";
+            }
             break;
     }
 

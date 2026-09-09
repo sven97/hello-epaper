@@ -57,12 +57,15 @@ static int32_t readBatteryWithDelta(int32_t &deltaMv, bool &haveDelta) {
 // at it, instead of only by noticing a stale photo days later. Never
 // called for interactive wakes -- those already show an error on every
 // single failure.
-static void maybeShowStuckError() {
+static void maybeShowStuckError(ErrorKind kind) {
     if (!shouldShowStuckError(fetchFailStreak, settings.sleepSecs,
                               stuckErrorShown))
         return;
     stuckErrorShown = true;
-    showError("Wi-Fi hasn't reconnected in over 6h - press KEY1 to check");
+    showError(kind == ErrorKind::Image
+                  ? "Image fetch has failed for over 6h - press KEY1 to check"
+                  : "Wi-Fi hasn't reconnected in over 6h - press KEY1 to check",
+              kind);
 }
 
 // App-level OTA rollback. Runs every wake while an image is on trial,
@@ -110,10 +113,10 @@ static void doFetchCycle(bool interactive) {
         fetchFailStreak++;
         otaStateNoteCycleFail();
         if (interactive) {
-            showError("Wi-Fi connection failed");
+            showError("Wi-Fi connection failed", ErrorKind::Wifi);
         } else {
             devLog.println("wifi failed — keeping image, retry next wake");
-            maybeShowStuckError();
+            maybeShowStuckError(ErrorKind::Wifi);
         }
         setLed(LedMode::Solid);
         return;
@@ -123,10 +126,10 @@ static void doFetchCycle(bool interactive) {
         fetchFailStreak++;
         otaStateNoteCycleFail();
         if (interactive) {
-            showError(err);
+            showError(err, ErrorKind::Image);
         } else {
             devLog.println("fetch failed (" + err + ") — keeping image");
-            maybeShowStuckError();
+            maybeShowStuckError(ErrorKind::Image);
         }
         setLed(LedMode::Solid);
         return;
@@ -282,7 +285,7 @@ void setup() {
         togglePin(); // photo stays up; no fetch, no panel touch
     } else if (btnBits & (1ULL << BTN_INFO)) {
         if (!runStatusMode(vbatMv, deltaMv, haveDelta))
-            showError("Wi-Fi connection failed");
+            showError("Wi-Fi connection failed", ErrorKind::Wifi);
     } else {
         doFetchCycle(cause != ESP_SLEEP_WAKEUP_TIMER); // power-on / btn-new-pic / timer
     }
@@ -337,7 +340,7 @@ void loop() {
         int32_t vbatMv = readBatteryWithDelta(deltaMv, haveDelta);
         if (info) {
             if (!runStatusMode(vbatMv, deltaMv, haveDelta))
-                showError("Wi-Fi connection failed");
+                showError("Wi-Fi connection failed", ErrorKind::Wifi);
         } else {
             doFetchCycle(newPic); // KEY2 is interactive; fetchDue is not
         }

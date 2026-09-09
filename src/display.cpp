@@ -12,13 +12,11 @@ EPaper epaper;
 
 void applyOrientation() { epaper.setRotation(settings.rotation); }
 
-PortraitScope::PortraitScope() {
-    // Rotation 0 is landscape-shaped on a native-landscape panel, so
-    // rotation 1 (90 deg) is the portrait one there; on a native-portrait
-    // panel rotation 0 already is portrait.
-    epaper.setRotation(PANEL_NATIVE_LANDSCAPE ? 1 : 0);
-}
-PortraitScope::~PortraitScope() { applyOrientation(); }
+// The EE02 panel is portrait-native (1200x1600) -- rotation 0 is already
+// portrait -- so this guard has nothing to swap. Kept as a type so the
+// status/onboarding/error call sites don't churn.
+PortraitScope::PortraitScope() {}
+PortraitScope::~PortraitScope() {}
 
 void drawStatusIcon(const uint8_t *bitmap, int x, int y, uint32_t fgColor) {
     epaper.drawBitmap(x, y, bitmap, ICON_W, ICON_H, fgColor);
@@ -31,12 +29,6 @@ void drawKeycap(const char *digit, int cx, int cy, int sizePx, uint32_t fgColor)
     epaper.setTextColor(fgColor, TFT_WHITE);
     epaper.setTextSize(1);
     epaper.drawString(digit, cx, cy, 2); // classic Font2, legible at any legend size
-}
-
-void initPanelColorMode() {
-#ifdef USE_MUTIGRAY_EPAPER
-    epaper.initGrayMode(16); // must be 4 or 16 literally; GRAY_LEVEL16 == 16
-#endif
 }
 
 void drawQrCode(const String &text, int cx, int cy, int scale) {
@@ -54,15 +46,12 @@ void drawQrCode(const String &text, int cx, int cy, int scale) {
                                 TFT_BLACK);
 }
 
-// Panel color/gray index (drawPixel stores it directly, 1 or 4 bpp
-// depending on panel) + sRGB approximation used as the dithering target.
-// idx is uint32_t (not uint8_t) because the mono fallback below uses the
-// library's TFT_WHITE/TFT_BLACK, which are full 16-bit RGB565 values when
-// no color-mode macro applies — TFT_eSprite::drawPixel at 1 bpp only tests
-// truthiness, so passing the raw 16-bit value through works correctly.
+// Panel colour index (drawPixel stores it directly) + sRGB approximation
+// used as the dithering target. idx is uint32_t to match the library's
+// TFT_* colour constants. The EE02 panel is Spectra-6: black, white, and
+// four saturated primaries.
 struct PaletteEntry { uint32_t idx; int16_t r, g, b; };
 
-#if defined(USE_COLORFULL_EPAPER) // EE02 (combo 510), and 509/514/516/517/521/523/525
 static const PaletteEntry PALETTE[] = {
     {TFT_WHITE,  255, 255, 255},
     {TFT_BLACK,  0,   0,   0  },
@@ -71,32 +60,6 @@ static const PaletteEntry PALETTE[] = {
     {TFT_GREEN,  0,   255, 0  },
     {TFT_BLUE,   0,   0,   255},
 };
-#elif defined(USE_BWRY_EPAPER) // combos 512/513
-static const PaletteEntry PALETTE[] = {
-    {TFT_WHITE,  255, 255, 255},
-    {TFT_BLACK,  0,   0,   0  },
-    {TFT_RED,    255, 0,   0  },
-    {TFT_YELLOW, 255, 255, 0  },
-};
-#elif defined(USE_MUTIGRAY_EPAPER) && defined(GRAY_LEVEL16) // EE03 (combo 511)
-// TFT_GRAY_0 (nibble 0x0) is darkest, TFT_GRAY_15 (0xF) is brightest —
-// evenly spaced luminance targets for the dither search.
-static const PaletteEntry PALETTE[] = {
-    {TFT_GRAY_0,  0,   0,   0  }, {TFT_GRAY_1,  17,  17,  17 },
-    {TFT_GRAY_2,  34,  34,  34 }, {TFT_GRAY_3,  51,  51,  51 },
-    {TFT_GRAY_4,  68,  68,  68 }, {TFT_GRAY_5,  85,  85,  85 },
-    {TFT_GRAY_6,  102, 102, 102}, {TFT_GRAY_7,  119, 119, 119},
-    {TFT_GRAY_8,  136, 136, 136}, {TFT_GRAY_9,  153, 153, 153},
-    {TFT_GRAY_10, 170, 170, 170}, {TFT_GRAY_11, 187, 187, 187},
-    {TFT_GRAY_12, 204, 204, 204}, {TFT_GRAY_13, 221, 221, 221},
-    {TFT_GRAY_14, 238, 238, 238}, {TFT_GRAY_15, 255, 255, 255},
-};
-#else // plain mono default (EE04/EE05, combo 502 and other 1bpp panels)
-static const PaletteEntry PALETTE[] = {
-    {TFT_WHITE, 255, 255, 255},
-    {TFT_BLACK, 0,   0,   0  },
-};
-#endif
 static const int PALETTE_SIZE = sizeof(PALETTE) / sizeof(PALETTE[0]);
 
 // See the declaration in display.h for why EPaper::readPixel() can't be

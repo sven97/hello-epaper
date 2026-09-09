@@ -276,7 +276,6 @@ void setup() {
 
     epaper.begin();
     applyOrientation(); // settings.rotation; UI + dither target follow
-    initPanelColorMode(); // gray-capable panels only (e.g. EE03); no-op otherwise
 
     if (btnBits & (1ULL << BTN_PIN)) {
         togglePin(); // photo stays up; no fetch, no panel touch

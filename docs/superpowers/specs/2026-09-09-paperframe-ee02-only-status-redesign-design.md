@@ -37,7 +37,9 @@ new status page introduces.
 | Dropped from the status page | **Last-fetch time** and **battery-voltage detail** — both remain on `/debug`. |
 | Button legend | **Keep current actions, relabel.** KEY1 → `Status`, KEY2 → `Refresh image`, KEY3 → `Pin image`. No behaviour change. |
 | "Next image refresh" | **Relative.** `in 2h 15m` / `in 12m` / `< 1 min`, from `plannedSleepSecs()` — works before NTP. `Pinned` when held; `Paused until 07:00` in quiet hours. |
-| Window frame | **Drawn.** Rounded-rect border + outer margin rendered on the panel, matching the mockup. |
+| Window frame | **Drawn.** Rounded-rect card, opaque white fill + 2px border. |
+| Card vs. background | The status/onboarding/error screen is a **centred 960×1056 card drawn over the retained image** — not a full-screen page. `drawFrameScreen()` never `fillScreen()`s; the caller paints the background first (`renderCachedPhoto()`, or white when there's no cache). |
+| KEY1 semantics | KEY1 **opens/closes the card without changing the displayed image**. Portal exit already re-renders the cached image (no fetch) — that path *is* the close. |
 
 ## Grid
 
@@ -45,20 +47,19 @@ Panel is 1200 (w) × 1600 (h), portrait. All values below are constants in
 the new renderer, not solved.
 
 ```
-outer margin        60 px   (panel edge → window border, all four sides)
-window              1080 × 1480, 2px border, corner radius 24
-inner padding       48 px   (window border → content box)
-content box         984 (w) × 1384 (h)
-columns             12 × 60 px
-gutters             11 × 24 px            (col + gutter unit = 84 px)
+card                960 × 1056, centred → 120 px L/R margin, 272 px T/B margin
+                    opaque white fill, 2px border, corner radius 24
+inner padding       48 px   (card border → content box)
+content box         864 (w) × 960 (h)
+columns             12 × 50 px
+gutters             11 × 24 px            (col + gutter unit = 74 px)
 half-window split   between col 6 and col 7
 zone rules          1 px, full content-box width
-zone band padding   40 px above/below each rule
+zone band padding   26 px above/below each rule
 ```
 
-Vertical stack is top-down; zones take their natural height and the
-legend pins to the bottom of the content box. There is generous slack —
-the panel is 4:3 portrait and the content is not tall.
+Vertical stack is top-down; zones take their natural height. The content
+(~860 px) fits inside the 960 px content box with modest slack.
 
 ## Status page (Normal state)
 

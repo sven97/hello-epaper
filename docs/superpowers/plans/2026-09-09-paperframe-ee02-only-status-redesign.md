@@ -49,10 +49,18 @@ compiled in (see the header comment in `src/ui.cpp`).
 - **Vocabulary:** product proper noun is **Paperframe**; common nouns in
   copy stay **image / device / display** (2026-09-07 sweep). Not `docs/`,
   not identifiers, not `src/logic` comments.
-- **Grid constants** (renderer, not solved): outer margin 60, window
-  1080×1480 / 2px border / radius 24, inner padding 48, content box
-  984×1384, 12 cols × 60px, 11 gutters × 24px, half-window split between
-  col 6 and 7, zone rules 1px with 40px band padding.
+- **Grid constants** (renderer, not solved) — **revised after hardware
+  review, 2026-09-09**: the status screen is a centred **960×1056 card
+  drawn over the retained image**, not a full-screen page. Card centred
+  → 120px L/R, 272px T/B margin; 2px border, radius 24; inner padding 48
+  → content box 864×960; 12 cols × 50px, 11 gutters × 24px; half-window
+  split between col 6 and 7; zone rules 1px with 26px band padding.
+  `drawFrameScreen()` never `fillScreen()`s — it `fillRoundRect()`s just
+  the card; the caller paints the background (`renderCachedPhoto()`, or
+  white) first. KEY1 opens/closes the card without a fetch (portal exit's
+  existing cached re-render is the close). The step text below that still
+  says 1080×1480 / 60px cols / `GRID_OUTER_MARGIN` predates this — follow
+  the numbers here and `src/logic/layout_math.h`.
 
 ---
 

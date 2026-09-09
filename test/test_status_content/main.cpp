@@ -5,167 +5,150 @@
 void setUp() {}
 void tearDown() {}
 
-// Deterministic fake measurement -- no real font needed. Roughly
-// character-count * size, close enough to a real font's average advance
-// width to exercise the fitting algorithm meaningfully.
-static int fakeMeasure(SizeRole, int sizePx, const char *text) {
-    return (int)(strlen(text) * sizePx * 0.6f);
-}
-
 static ScreenContent normalContent() {
     ScreenContent c{};
-    c.batteryPct = 98;
-    strncpy(c.batteryVoltage, "4.17V", sizeof(c.batteryVoltage) - 1);
+    c.batteryPct = 84;
     strncpy(c.wifiBase, "strong", sizeof(c.wifiBase) - 1);
-    strncpy(c.wifiSsid, "FUIYOH", sizeof(c.wifiSsid) - 1);
-    strncpy(c.nextBase, "16:32", sizeof(c.nextBase) - 1);
-    strncpy(c.lastFetch, "last Wed 14:32", sizeof(c.lastFetch) - 1);
-    strncpy(c.settingsUrl, "http://ee02.local", sizeof(c.settingsUrl) - 1);
+    strncpy(c.wifiSsid, "Studio Wi-Fi", sizeof(c.wifiSsid) - 1);
+    strncpy(c.nextBase, "in 2h 15m", sizeof(c.nextBase) - 1);
+    strncpy(c.settingsUrl, "http://paperframe.local", sizeof(c.settingsUrl) - 1);
+    strncpy(c.lastIp, "192.168.1.42", sizeof(c.lastIp) - 1);
+    strncpy(c.deviceId, "PF-A82F", sizeof(c.deviceId) - 1);
     return c;
 }
 
-void test_buildLines_normal_full_content() {
-    ContentConfig cfg = configForLevel(0);
-    ContentLine lines[MAX_CONTENT_LINES];
-    ScreenContent c = normalContent();
-    // title, board, battery, wifi, next (3 stats), scan, url, legend x3 = 10
-    int n = buildLines(ScreenState::Normal, cfg, c, "EE02", "abc123",
-                       "EE02-Setup", lines, MAX_CONTENT_LINES);
-    TEST_ASSERT_EQUAL(10, n);
-    TEST_ASSERT_TRUE(lines[0].kind == LineKind::Title);
-    TEST_ASSERT_TRUE(strstr(lines[0].text, "ver.abc123") != nullptr);
-    TEST_ASSERT_TRUE(lines[1].kind == LineKind::Board);
-    TEST_ASSERT_TRUE(strstr(lines[1].text, "EE02") != nullptr);
-    TEST_ASSERT_TRUE(lines[2].icon == StatIcon::Battery);
-    TEST_ASSERT_TRUE(strstr(lines[2].text, "98%") != nullptr);
-    TEST_ASSERT_TRUE(strstr(lines[2].text, "4.17V") != nullptr); // detail present at level 0
+static StatusData build(ScreenState s, const ScreenContent &c) {
+    return buildStatusData(s, c, 1247, "Paperframe-Setup",
+                           "13.3\" Spectra 6", 1200, 1600);
 }
 
-void test_buildLines_legend_combined_and_dropped() {
-    ContentLine lines[MAX_CONTENT_LINES];
-    ScreenContent c = normalContent();
-
-    ContentConfig full = configForLevel(0);
-    int nFull = buildLines(ScreenState::Normal, full, c, "EE02", "abc123", "EE02-Setup", lines, MAX_CONTENT_LINES);
-    int legendFull = 0;
-    for (int i = 0; i < nFull; i++) if (lines[i].kind == LineKind::Legend) legendFull++;
-    TEST_ASSERT_EQUAL(3, legendFull);
-
-    ContentConfig combined = configForLevel(1);
-    int nCombined = buildLines(ScreenState::Normal, combined, c, "EE02", "abc123", "EE02-Setup", lines, MAX_CONTENT_LINES);
-    int legendCombined = 0;
-    for (int i = 0; i < nCombined; i++) if (lines[i].kind == LineKind::Legend) legendCombined++;
-    TEST_ASSERT_EQUAL(1, legendCombined);
-    TEST_ASSERT_EQUAL(nFull - 2, nCombined); // 3 rows collapsed to 1
-
-    ContentConfig none = configForLevel(2);
-    int nNone = buildLines(ScreenState::Normal, none, c, "EE02", "abc123", "EE02-Setup", lines, MAX_CONTENT_LINES);
-    int legendNone = 0;
-    for (int i = 0; i < nNone; i++) if (lines[i].kind == LineKind::Legend) legendNone++;
-    TEST_ASSERT_EQUAL(0, legendNone);
+// ---- formatNextRefresh --------------------------------------------
+void test_next_pinned_when_held() {
+    char buf[24];
+    formatNextRefresh(buf, sizeof(buf), true, true, false, 7, 3600);
+    TEST_ASSERT_EQUAL_STRING("Pinned", buf);
 }
 
-void test_buildLines_stat_detail_dropped_at_level3() {
-    ContentConfig cfg = configForLevel(3); // statDetail=false
-    ContentLine lines[MAX_CONTENT_LINES];
-    ScreenContent c = normalContent();
-    int n = buildLines(ScreenState::Normal, cfg, c, "EE02", "abc123", "EE02-Setup", lines, MAX_CONTENT_LINES);
-    for (int i = 0; i < n; i++) {
-        if (lines[i].kind == LineKind::Stat)
-            TEST_ASSERT_TRUE(strstr(lines[i].text, " - ") == nullptr); // no detail separator
-    }
+void test_next_relative_hours_and_minutes() {
+    char buf[24];
+    formatNextRefresh(buf, sizeof(buf), false, false, false, 7, 3600);
+    TEST_ASSERT_EQUAL_STRING("in 1h 0m", buf);
+    formatNextRefresh(buf, sizeof(buf), false, false, false, 7, 5400);
+    TEST_ASSERT_EQUAL_STRING("in 1h 30m", buf);
 }
 
-void test_buildLines_onboarding_uses_ap_name() {
-    ContentConfig cfg = configForLevel(0);
-    ContentLine lines[MAX_CONTENT_LINES];
+void test_next_relative_minutes_only() {
+    char buf[24];
+    formatNextRefresh(buf, sizeof(buf), false, false, false, 7, 600);
+    TEST_ASSERT_EQUAL_STRING("in 10m", buf);
+}
+
+void test_next_sub_minute() {
+    char buf[24];
+    formatNextRefresh(buf, sizeof(buf), false, false, false, 7, 30);
+    TEST_ASSERT_EQUAL_STRING("< 1 min", buf);
+}
+
+void test_next_paused_in_quiet_hours() {
+    char buf[24];
+    formatNextRefresh(buf, sizeof(buf), false, true, true, 7, 999999);
+    TEST_ASSERT_EQUAL_STRING("Paused until 07:00", buf);
+}
+
+void test_next_quiet_without_clock_falls_back_to_relative() {
+    char buf[24];
+    formatNextRefresh(buf, sizeof(buf), false, false, true, 7, 600);
+    TEST_ASSERT_EQUAL_STRING("in 10m", buf);
+}
+
+// ---- deviceIdFromMac ---------------------------------------------
+void test_device_id_from_mac_low_16_bits() {
+    char buf[12];
+    deviceIdFromMac(buf, sizeof(buf), 0x1122334455A82FULL);
+    TEST_ASSERT_EQUAL_STRING("PF-A82F", buf);
+    deviceIdFromMac(buf, sizeof(buf), 0x00FFULL);
+    TEST_ASSERT_EQUAL_STRING("PF-00FF", buf);
+}
+
+// ---- buildStatusData: Normal -----------------------------------
+void test_normal_version_line_is_build_number() {
+    StatusData d = build(ScreenState::Normal, normalContent());
+    TEST_ASSERT_EQUAL_STRING("Firmware build 1247", d.versionLine);
+    TEST_ASSERT_EQUAL_STRING("Paperframe", d.title);
+}
+
+void test_normal_legend_and_qr_payload() {
+    StatusData d = build(ScreenState::Normal, normalContent());
+    TEST_ASSERT_EQUAL_STRING("Status", d.legend[0]);
+    TEST_ASSERT_EQUAL_STRING("Refresh image", d.legend[1]);
+    TEST_ASSERT_EQUAL_STRING("Pin image", d.legend[2]);
+    TEST_ASSERT_EQUAL_STRING("http://paperframe.local", d.qrPayload);
+    TEST_ASSERT_EQUAL_STRING("http://paperframe.local", d.urlPrimary);
+}
+
+void test_normal_ip_line_present_then_absent() {
+    StatusData d = build(ScreenState::Normal, normalContent());
+    TEST_ASSERT_EQUAL_STRING("Or http://192.168.1.42", d.urlSecondary);
+
+    ScreenContent c = normalContent();
+    c.lastIp[0] = '\0';
+    d = build(ScreenState::Normal, c);
+    TEST_ASSERT_EQUAL_STRING("", d.urlSecondary);
+}
+
+void test_normal_wifi_heading_is_ssid_and_label_from_base() {
+    StatusData d = build(ScreenState::Normal, normalContent());
+    TEST_ASSERT_EQUAL_STRING("Studio Wi-Fi", d.wifiHeading);
+    TEST_ASSERT_EQUAL_STRING("Strong signal", d.wifiLabel);
+    TEST_ASSERT_EQUAL_STRING("strong", d.wifiBase);
+}
+
+void test_normal_panel_spec_passthrough() {
+    StatusData d = build(ScreenState::Normal, normalContent());
+    TEST_ASSERT_EQUAL_STRING("13.3\" Spectra 6", d.panelDesc);
+    TEST_ASSERT_EQUAL_STRING("1200 x 1600", d.resLine);
+    TEST_ASSERT_EQUAL_STRING("PF-A82F", d.deviceId);
+}
+
+// ---- buildStatusData: Onboarding -----------------------------
+void test_onboarding_qr_is_wifi_join_and_legend_trimmed() {
     ScreenContent c{};
-    c.batteryPct = 98;
-    strncpy(c.wifiBase, "--", sizeof(c.wifiBase) - 1);
-    strncpy(c.nextBase, "--", sizeof(c.nextBase) - 1);
-    int n = buildLines(ScreenState::Onboarding, cfg, c, "EE02", "abc123", "EE02-Setup", lines, MAX_CONTENT_LINES);
-    bool foundCaption = false;
-    for (int i = 0; i < n; i++) {
-        if (lines[i].kind == LineKind::Caption) {
-            foundCaption = true;
-            TEST_ASSERT_TRUE(strstr(lines[i].text, "EE02-Setup") != nullptr);
-        }
-    }
-    TEST_ASSERT_TRUE(foundCaption);
+    c.batteryPct = 61;
+    StatusData d = build(ScreenState::Onboarding, c);
+    TEST_ASSERT_EQUAL_STRING("WIFI:S:Paperframe-Setup;;", d.qrPayload);
+    TEST_ASSERT_EQUAL_STRING("Status", d.legend[0]);
+    TEST_ASSERT_EQUAL_STRING("", d.legend[1]);
+    TEST_ASSERT_EQUAL_STRING("", d.legend[2]);
+    TEST_ASSERT_EQUAL_STRING("Not connected", d.wifiHeading);
 }
 
-void test_buildLines_error_uses_error_message() {
-    ContentConfig cfg = configForLevel(0);
-    ContentLine lines[MAX_CONTENT_LINES];
+// ---- buildStatusData: Error --------------------------------
+void test_error_legend_and_wifi_heading() {
     ScreenContent c = normalContent();
     strncpy(c.errorMsg, "image server said HTTP 404", sizeof(c.errorMsg) - 1);
-    int n = buildLines(ScreenState::Error, cfg, c, "EE02", "abc123", "EE02-Setup", lines, MAX_CONTENT_LINES);
-    bool foundScan = false;
-    for (int i = 0; i < n; i++) {
-        if (lines[i].kind == LineKind::Scan) {
-            foundScan = true;
-            TEST_ASSERT_TRUE(strstr(lines[i].text, "HTTP 404") != nullptr);
-        }
-    }
-    TEST_ASSERT_TRUE(foundScan);
-}
-
-// ---- fitScreen: always terminates, always produces usable content ----
-void test_fitScreen_ee02_portrait_fits_at_level_zero() {
-    ScreenContent c = normalContent();
-    ScreenFit fit = fitScreen(ScreenState::Normal, c, "EE02", "abc123", "EE02-Setup",
-                              1200, 1600, fakeMeasure);
-    TEST_ASSERT_TRUE(fit.lineCount > 0);
-    TEST_ASSERT_TRUE(fit.qrScale >= 1 && fit.qrScale <= 4);
-    TEST_ASSERT_EQUAL(0, fit.level); // generous panel: no reduction needed
-}
-
-void test_fitScreen_tiny_panel_terminates_and_keeps_header() {
-    ScreenContent c = normalContent();
-    ScreenFit fit = fitScreen(ScreenState::Normal, c, "EE02", "abc123", "EE02-Setup",
-                              128, 296, fakeMeasure);
-    TEST_ASSERT_TRUE(fit.lineCount > 0);
-    TEST_ASSERT_TRUE(fit.level >= 0 && fit.level <= REDUCTION_LEVELS);
-    bool hasTitle = false;
-    for (int i = 0; i < fit.lineCount; i++)
-        if (fit.lines[i].line.kind == LineKind::Title) hasTitle = true;
-    TEST_ASSERT_TRUE(hasTitle); // title is never in the reduction cascade
-}
-
-void test_fitScreen_qr_never_below_floor_unless_dropped() {
-    ScreenContent c = normalContent();
-    ScreenFit fit = fitScreen(ScreenState::Normal, c, "EE02", "abc123", "EE02-Setup",
-                              128, 296, fakeMeasure);
-    if (fit.qrScale > 0) TEST_ASSERT_TRUE(fit.qrScale >= QR_MIN_SCALE);
-}
-
-// A short stat value or short URL can independently pick a large ladder
-// rung while a long title gets forced small by the narrow row -- the
-// width-only fit alone doesn't guarantee title > stat > chrome. Checked
-// on a 480x800 portrait panel (EE04/EE05-shaped) across every screen
-// state, since the reduction cascade differs per state.
-void test_fitScreen_hierarchy_holds_on_480x800_panel() {
-    ScreenContent c = normalContent();
-    strncpy(c.errorMsg, "image server said HTTP 404", sizeof(c.errorMsg) - 1);
-    ScreenState states[] = {ScreenState::Normal, ScreenState::Onboarding, ScreenState::Error};
-    for (int i = 0; i < 3; i++) {
-        ScreenFit fit = fitScreen(states[i], c, "EE04", "abc123", "EE04-Setup",
-                                  480, 800, fakeMeasure);
-        TEST_ASSERT_TRUE(fit.sizes.chrome <= fit.sizes.stat);
-        TEST_ASSERT_TRUE(fit.sizes.stat <= fit.sizes.title);
-    }
+    StatusData d = build(ScreenState::Error, c);
+    TEST_ASSERT_EQUAL_STRING("Status", d.legend[0]);
+    TEST_ASSERT_EQUAL_STRING("Retry", d.legend[1]);
+    TEST_ASSERT_EQUAL_STRING("Pin image", d.legend[2]);
+    TEST_ASSERT_EQUAL_STRING("Connection failed", d.wifiHeading);
+    TEST_ASSERT_TRUE(strstr(d.actionLine1, "HTTP 404") != nullptr);
 }
 
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_buildLines_normal_full_content);
-    RUN_TEST(test_buildLines_legend_combined_and_dropped);
-    RUN_TEST(test_buildLines_stat_detail_dropped_at_level3);
-    RUN_TEST(test_buildLines_onboarding_uses_ap_name);
-    RUN_TEST(test_buildLines_error_uses_error_message);
-    RUN_TEST(test_fitScreen_ee02_portrait_fits_at_level_zero);
-    RUN_TEST(test_fitScreen_tiny_panel_terminates_and_keeps_header);
-    RUN_TEST(test_fitScreen_qr_never_below_floor_unless_dropped);
-    RUN_TEST(test_fitScreen_hierarchy_holds_on_480x800_panel);
+    RUN_TEST(test_next_pinned_when_held);
+    RUN_TEST(test_next_relative_hours_and_minutes);
+    RUN_TEST(test_next_relative_minutes_only);
+    RUN_TEST(test_next_sub_minute);
+    RUN_TEST(test_next_paused_in_quiet_hours);
+    RUN_TEST(test_next_quiet_without_clock_falls_back_to_relative);
+    RUN_TEST(test_device_id_from_mac_low_16_bits);
+    RUN_TEST(test_normal_version_line_is_build_number);
+    RUN_TEST(test_normal_legend_and_qr_payload);
+    RUN_TEST(test_normal_ip_line_present_then_absent);
+    RUN_TEST(test_normal_wifi_heading_is_ssid_and_label_from_base);
+    RUN_TEST(test_normal_panel_spec_passthrough);
+    RUN_TEST(test_onboarding_qr_is_wifi_join_and_legend_trimmed);
+    RUN_TEST(test_error_legend_and_wifi_heading);
     return UNITY_END();
 }

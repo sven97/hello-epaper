@@ -2,8 +2,7 @@
 #include <Arduino.h>
 
 // ---- Buttons -------------------------------------------------------------
-// Physical buttons, named as silkscreened on the XIAO EE0x boards
-// (KEY1..KEY3) — pins are identical across EE02/EE03/EE04/EE05.
+// Physical buttons, named as silkscreened on the XIAO EE02 board (KEY1..KEY3).
 constexpr uint8_t BTN_KEY1 = 2;
 constexpr uint8_t BTN_KEY2 = 3;
 constexpr uint8_t BTN_KEY3 = 5;
@@ -39,30 +38,26 @@ inline const char *OTA_MANIFEST_URL =
 constexpr bool     DEFAULT_OTA_ENABLED     = true;         // opt-out
 constexpr uint32_t OTA_CHECK_INTERVAL_SECS = 24 * 60 * 60; // fixed: daily
 
-// Per-board overrides, set via build_flags in platformio.ini (same idiom as
-// BOARD_SCREEN_COMBO). Undefined -> EE02 defaults, unchanged from before.
-#ifndef DEFAULT_DEVICE_NAME_STR
-#define DEFAULT_DEVICE_NAME_STR "ee02"
-#endif
-inline const char *DEFAULT_DEVICE_NAME = DEFAULT_DEVICE_NAME_STR;
+// Default mDNS hostname -- the user can rename the device in settings, so
+// this only applies on fresh boot / factory reset.
+inline const char *DEFAULT_DEVICE_NAME = "paperframe";
 
-#ifndef DEFAULT_ROTATION_VALUE
-#define DEFAULT_ROTATION_VALUE 0 // portrait
-#endif
-constexpr uint8_t DEFAULT_ROTATION = DEFAULT_ROTATION_VALUE;
+// Photo-display orientation default. The panel is portrait-native, so
+// rotation 0 is portrait.
+constexpr uint8_t DEFAULT_ROTATION = 0;
 
-#ifndef AP_NAME_STR
-#define AP_NAME_STR "EE02-Setup"
-#endif
-inline const char *AP_NAME = AP_NAME_STR;
+// Soft-AP SSID shown during onboarding.
+inline const char *AP_NAME = "Paperframe-Setup";
 
-// Fixed board model for the status screen's subtitle -- distinct from
-// DEFAULT_DEVICE_NAME, which is just the default mDNS hostname and can be
-// renamed by the user in settings; the board model can't.
-#ifndef BOARD_MODEL_STR
-#define BOARD_MODEL_STR "EE02"
-#endif
-inline const char *BOARD_MODEL = BOARD_MODEL_STR;
+// Hardware model, shown in the status screen's device zone -- distinct
+// from DEFAULT_DEVICE_NAME (a renamable hostname) and from the "Paperframe"
+// product name.
+inline const char *BOARD_MODEL = "EE02";
+
+// The one supported panel: XIAO EE02, 13.3" Spectra-6 colour, portrait-native.
+constexpr int      PANEL_W    = 1200;
+constexpr int      PANEL_H    = 1600;
+inline const char *PANEL_DESC = "13.3\" Spectra 6";
 
 inline const char *TZ_API_URL =
     "http://ip-api.com/json?fields=status,timezone,offset";

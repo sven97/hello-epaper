@@ -3,6 +3,7 @@
 #include "display.h"
 #include "icons.h"
 #include "screencapture.h"
+#include "photocache.h"
 #include "portal.h"
 #include "power.h"
 #include "settings.h"
@@ -137,16 +138,19 @@ static void drawColorSwatch(int x, int y, int cellW, int cellH) {
     }
 }
 
+// Draws the status/onboarding/error card as an overlay -- the caller has
+// already painted the background (the retained image, or white). Only the
+// 960x1056 card rectangle is touched.
 void drawFrameScreen(ScreenState state, const ScreenContent &content) {
     const StatusData d = buildStatusData(state, content, FW_BUILD_NUMBER, AP_NAME,
                                          PANEL_DESC, PANEL_W, PANEL_H);
 
-    epaper.fillScreen(TFT_WHITE);
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
 
-    // ---- Window frame (2px rounded rect, centred on the panel).
-    const int winX = GRID_OUTER_MARGIN;
-    const int winY = (PANEL_H - GRID_WIN_H) / 2;
+    // ---- Card: opaque white panel + 2px rounded border, centred.
+    const int winX = GRID_MARGIN_X;
+    const int winY = GRID_MARGIN_Y;
+    epaper.fillRoundRect(winX, winY, GRID_WIN_W, GRID_WIN_H, GRID_WIN_RADIUS, TFT_WHITE);
     epaper.drawRoundRect(winX, winY, GRID_WIN_W, GRID_WIN_H, GRID_WIN_RADIUS, TFT_BLACK);
     epaper.drawRoundRect(winX + 1, winY + 1, GRID_WIN_W - 2, GRID_WIN_H - 2,
                          GRID_WIN_RADIUS - 1, TFT_BLACK);
@@ -246,6 +250,10 @@ void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     ScreenContent content = gatherLiveContent(vbatMv, deltaMv, haveDelta);
     snapshotPrevious();
     PortraitScope portrait;
+    // The card sits over the retained image -- KEY1 toggles it without
+    // changing what's displayed. renderCachedPhoto() repaints the sprite
+    // with the current image; white only if there's no cache yet.
+    if (!renderCachedPhoto()) epaper.fillScreen(TFT_WHITE);
     drawFrameScreen(ScreenState::Normal, content);
     epaper.update();
 }

@@ -1,5 +1,6 @@
 #include "display.h"
 #include "screencapture.h"
+#include "photocache.h"
 #include "devlog.h"
 #include "config.h"
 #include "settings.h"
@@ -190,6 +191,8 @@ void showError(const String &msg) {
     strncpy(content.errorMsg, msg.c_str(), sizeof(content.errorMsg) - 1);
     snapshotPrevious();
     PortraitScope portrait;
+    // Error card over the last good image (white only if there's no cache).
+    if (!renderCachedPhoto()) epaper.fillScreen(TFT_WHITE);
     drawFrameScreen(ScreenState::Error, content);
     epaper.update();
 }

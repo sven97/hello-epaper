@@ -81,6 +81,8 @@ static void showProvisioningScreen() {
     deviceIdFromMac(content.deviceId, sizeof(content.deviceId), ESP.getEfuseMac());
     snapshotPrevious();
     PortraitScope portrait;
+    // First boot -- no retained image to sit over.
+    if (!renderCachedPhoto()) epaper.fillScreen(TFT_WHITE);
     drawFrameScreen(ScreenState::Onboarding, content);
     epaper.update();
 }

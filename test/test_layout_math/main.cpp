@@ -23,8 +23,9 @@ void test_gridSpanW_half_window_plus_gutter_plus_half_is_full() {
     TEST_ASSERT_EQUAL(left, right); // symmetric split
 }
 
-void test_window_is_centred_on_the_1200px_panel() {
-    TEST_ASSERT_EQUAL(1200, GRID_OUTER_MARGIN * 2 + GRID_WIN_W);
+void test_card_is_centred_on_the_panel() {
+    TEST_ASSERT_EQUAL(PANEL_GRID_W, GRID_MARGIN_X * 2 + GRID_WIN_W);
+    TEST_ASSERT_EQUAL(PANEL_GRID_H, GRID_MARGIN_Y * 2 + GRID_WIN_H);
 }
 
 // ---- QR sizing -----------------------------------------------------
@@ -48,7 +49,7 @@ int main() {
     RUN_TEST(test_gridColX_is_zero_based_from_content_box);
     RUN_TEST(test_gridSpanW_full_width_matches_content_box);
     RUN_TEST(test_gridSpanW_half_window_plus_gutter_plus_half_is_full);
-    RUN_TEST(test_window_is_centred_on_the_1200px_panel);
+    RUN_TEST(test_card_is_centred_on_the_panel);
     RUN_TEST(test_qrScaleForBox_fits_inside_the_box);
     RUN_TEST(test_qrScaleForBox_never_below_floor);
     RUN_TEST(test_qrScaleForBox_uses_the_smaller_dimension);

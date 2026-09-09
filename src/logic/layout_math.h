@@ -1,12 +1,12 @@
 #pragma once
-// Grid + QR geometry for the fixed 12-column status/onboarding/error
-// screen on the EE02 panel (1200x1600, portrait-native). Pure logic:
-// host-testable, no Arduino deps. See
+// Grid + QR geometry for the status/onboarding/error overlay on the EE02
+// panel (1200x1600, portrait-native). Pure logic: host-testable, no
+// Arduino deps. See
 // docs/superpowers/specs/2026-09-09-paperframe-ee02-only-status-redesign-design.md.
 //
-// This replaced the multi-panel content-fitting engine (font ladders,
-// fitSize, the shrink pass, the reduction cascade) -- with exactly one
-// panel of one fixed size the layout is hand-placed, not solved.
+// The status screen is a centred card drawn *over* the retained image --
+// not a full-screen page. This file is only the fixed geometry; with one
+// panel of one size the layout is hand-placed, not solved.
 
 #include <cstdint>
 
@@ -19,20 +19,25 @@ constexpr int QR_QUIET_MODULES = 4;
 constexpr int QR_TOTAL_MODULES = QR_MODULES + 2 * QR_QUIET_MODULES; // 41
 constexpr int QR_MIN_SCALE = 2;
 
-// ---- 12-column grid inside the drawn window. All values are panel px;
-// the panel is a fixed 1200 (w) x 1600 (h) (PANEL_W/PANEL_H in config.h).
-constexpr int GRID_OUTER_MARGIN = 60;   // panel edge -> window border, all sides
-constexpr int GRID_WIN_W = 1080;        // 1200 - 2*GRID_OUTER_MARGIN
-constexpr int GRID_WIN_H = 1480;        // 1600 - 2*GRID_OUTER_MARGIN
+// ---- Centred 960x1056 card on the 1200x1600 panel. All values panel px.
+constexpr int PANEL_GRID_W = 1200;
+constexpr int PANEL_GRID_H = 1600;
+constexpr int GRID_WIN_W = 960;
+constexpr int GRID_WIN_H = 1056;
+constexpr int GRID_MARGIN_X = (PANEL_GRID_W - GRID_WIN_W) / 2; // 120
+constexpr int GRID_MARGIN_Y = (PANEL_GRID_H - GRID_WIN_H) / 2; // 272
 constexpr int GRID_WIN_BORDER = 2;
 constexpr int GRID_WIN_RADIUS = 24;
-constexpr int GRID_PAD = 48;            // window border -> content box
+
+// ---- 12-column grid inside the card.
+constexpr int GRID_PAD = 48;            // card border -> content box
 constexpr int GRID_COLS = 12;
-constexpr int GRID_COL_W = 60;
+constexpr int GRID_COL_W = 50;
 constexpr int GRID_GUTTER = 24;
 constexpr int GRID_CONTENT_W =
-    GRID_COLS * GRID_COL_W + (GRID_COLS - 1) * GRID_GUTTER; // 984
-constexpr int GRID_ZONE_PAD = 40;      // vertical padding above/below each zone rule
+    GRID_COLS * GRID_COL_W + (GRID_COLS - 1) * GRID_GUTTER; // 864
+constexpr int GRID_CONTENT_H = GRID_WIN_H - 2 * GRID_PAD;   // 960
+constexpr int GRID_ZONE_PAD = 26;      // vertical padding above/below each zone rule
 
 // x of column `c` (1-based), relative to the content-box left edge.
 inline int gridColX(int c) { return (c - 1) * (GRID_COL_W + GRID_GUTTER); }

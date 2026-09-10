@@ -31,9 +31,9 @@ inline const char *DEFAULT_IMAGE_URL =
 // Fixed rolling release published by .github/workflows/ci.yml on every
 // push to main; assets are clobbered in place so these URLs are stable.
 inline const char *OTA_RELEASE_BASE_URL =
-    "https://github.com/sven97/hello-epaper/releases/download/firmware-latest/";
+    "https://github.com/sven97/paperframe/releases/download/firmware-latest/";
 inline const char *OTA_MANIFEST_URL =
-    "https://github.com/sven97/hello-epaper/releases/download/firmware-latest/manifest.txt";
+    "https://github.com/sven97/paperframe/releases/download/firmware-latest/manifest.txt";
 
 constexpr bool     DEFAULT_OTA_ENABLED     = true;         // opt-out
 constexpr uint32_t OTA_CHECK_INTERVAL_SECS = 24 * 60 * 60; // fixed: daily

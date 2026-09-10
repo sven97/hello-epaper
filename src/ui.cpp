@@ -3,11 +3,13 @@
 #include "display.h"
 #include "icons.h"
 #include "screencapture.h"
+#include "photocache.h"
 #include "portal.h"
 #include "power.h"
 #include "settings.h"
 #include "state.h"
 #include "logic/wifi_strength.h"
+#include "logic/quiet_hours.h"
 #include <WiFi.h>
 #include <time.h>
 #include <cstring>
@@ -43,223 +45,210 @@ void recordFetchMetadata() {
     prefs.putInt("wifiRssi", WiFi.RSSI());
 }
 
-// "next photo" stat value ("HH:MM", "pinned", or "--").
-static String nextPhotoValue() {
-    if (held) return "pinned";
-    if (time(nullptr) <= CLOCK_SANE_EPOCH) return "--";
-    time_t nextT = time(nullptr) + (time_t)plannedSleepSecs();
-    struct tm t;
-    localtime_r(&nextT, &t);
-    char hm[8];
-    strftime(hm, sizeof(hm), "%H:%M", &t);
-    return String(hm);
+static int localDaySecs(time_t t) {
+    struct tm lt;
+    localtime_r(&t, &lt);
+    return lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec;
 }
 
 ScreenContent gatherLiveContent(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
-    (void)deltaMv; (void)haveDelta; // charging indication has no equivalent
-                                     // in the unified design -- see the
-                                     // design spec's dropped-feature note
+    (void)deltaMv; (void)haveDelta; // no charging indication in this design
     ScreenContent content{};
     content.batteryPct = batteryPercent(vbatMv);
-    snprintf(content.batteryVoltage, sizeof(content.batteryVoltage), "%.2fV", vbatMv / 1000.0f);
 
     const int rssi = prefs.getInt("wifiRssi", -100);
-    const WifiStrength wifiLevel = wifiStrengthBucket(rssi);
-    strncpy(content.wifiBase, wifiStrengthLabel(wifiLevel), sizeof(content.wifiBase) - 1);
-    String ssid = prefs.getString("wifiSsid", "?");
+    strncpy(content.wifiBase, wifiStrengthLabel(wifiStrengthBucket(rssi)),
+            sizeof(content.wifiBase) - 1);
+    String ssid = prefs.getString("wifiSsid", "");
     strncpy(content.wifiSsid, ssid.c_str(), sizeof(content.wifiSsid) - 1);
 
-    String nextVal = nextPhotoValue();
-    strncpy(content.nextBase, nextVal.c_str(), sizeof(content.nextBase) - 1);
+    // Next refresh, relative: plannedSleepSecs() is already quiet-adjusted;
+    // formatNextRefresh renders "in Xh Ym" / "Pinned" / "Paused until HH:00".
+    const time_t now = time(nullptr);
+    const bool clockSane = now > CLOCK_SANE_EPOCH;
+    const bool inQuiet = settings.quietEnabled && clockSane &&
+        inQuietWindow(localDaySecs(now), settings.quietStartHour, settings.quietEndHour);
+    formatNextRefresh(content.nextBase, sizeof(content.nextBase), held, clockSane,
+                      inQuiet, settings.quietEndHour, plannedSleepSecs());
 
-    time_t lastEpoch = (time_t)prefs.getULong("lastEpoch", 0);
-    if (lastEpoch > CLOCK_SANE_EPOCH) {
-        struct tm t;
-        localtime_r(&lastEpoch, &t);
-        char buf[24];
-        strftime(buf, sizeof(buf), "last %a %H:%M", &t);
-        strncpy(content.lastFetch, buf, sizeof(content.lastFetch) - 1);
-    }
-
-    String url = portalUrl();
-    strncpy(content.settingsUrl, url.c_str(), sizeof(content.settingsUrl) - 1);
+    strncpy(content.settingsUrl, portalUrl().c_str(), sizeof(content.settingsUrl) - 1);
+    strncpy(content.lastIp, prefs.getString("lastIp", "").c_str(),
+            sizeof(content.lastIp) - 1);
+    deviceIdFromMac(content.deviceId, sizeof(content.deviceId), ESP.getEfuseMac());
     return content;
 }
 
-// ---- Font selection: maps a fitted ladder rung to the real compiled-in
-// font asset for that role. gfxFont != nullptr means a GFXFF face;
-// otherwise classicFont (1 = GLCD, 2 = Font2) selects a classic bitmap
-// font.
-struct FontChoice { const GFXfont *gfxFont; uint8_t classicFont; };
+// ---- Fixed-grid renderer -------------------------------------------------
+// Four type styles, three sizes, two weights -- every face is already
+// compiled in (see the header comment). No fitting: role -> font is fixed.
+//   Title   bold 24pt  "Paperframe" only
+//   Value   bold 18pt  the one hero number ("in 15m")
+//   Heading bold 12pt  zone headings + the device id
+//   Body    reg  12pt  everything else (labels, instructions, URLs, legend)
+enum class Role { Title, Value, Heading, Body };
 
-static FontChoice fontFor(SizeRole role, int sizePx) {
-    if (role == SizeRole::Title) {
-        switch (sizePx) {
-            case 56: return {&FreeSansBold24pt7b, 0};
-            case 42: return {&FreeSansBold18pt7b, 0};
-            case 29: return {&FreeSansBold12pt7b, 0};
-            case 22: return {&FreeSansBold9pt7b, 0};
-            case 16: return {nullptr, 2};
-            default: return {nullptr, 1}; // 8px
-        }
-    }
-    if (role == SizeRole::Stat) {
-        switch (sizePx) {
-            case 42: return {&FreeSans18pt7b, 0};
-            case 29: return {&FreeSans12pt7b, 0};
-            case 22: return {&FreeSans9pt7b, 0};
-            case 16: return {nullptr, 2};
-            default: return {nullptr, 1};
-        }
-    }
-    switch (sizePx) { // Chrome
-        case 29: return {&FreeSans12pt7b, 0};
-        case 16: return {nullptr, 2};
-        default: return {nullptr, 1};
+static void useFont(Role r) {
+    switch (r) {
+        case Role::Title:   epaper.setFreeFont(&FreeSansBold24pt7b); break;
+        case Role::Value:   epaper.setFreeFont(&FreeSansBold18pt7b); break;
+        case Role::Heading: epaper.setFreeFont(&FreeSansBold12pt7b); break;
+        case Role::Body:    epaper.setFreeFont(&FreeSans12pt7b);     break;
     }
 }
 
-// Applies `f` to `epaper` so a following 0-arg textWidth()/drawString()
-// call uses it. Classic Font1 (GLCD) is ambiguous in this library --
-// drawing with font number 1 silently reuses whatever GFXFF font is
-// still loaded if one is (TFT_eSPI's textWidth()/drawString() treat
-// font==1 as "use gfxFont if set, else GLCD") -- so the GLCD case must
-// explicitly clear it via setFreeFont(nullptr) first. Font 2 is
-// unambiguous (font>1 always uses the classic width table) and needs no
-// such precaution.
-static void applyFont(const FontChoice &f) {
-    if (f.gfxFont) { epaper.setFreeFont(f.gfxFont); return; }
-    if (f.classicFont == 1) { epaper.setFreeFont(nullptr); return; } // clears gfxFont, textfont=1
-    epaper.setTextFont(f.classicFont); // 2: unambiguous
+// Nominal line advance per role (px) -- tuned for vertical rhythm.
+static int lineH(Role r) {
+    switch (r) {
+        case Role::Title:   return 58;
+        case Role::Value:   return 42;
+        case Role::Heading: return 30;
+        default:            return 28; // Body
+    }
 }
 
-static int realTextWidth(SizeRole role, int sizePx, const char *text) {
-    applyFont(fontFor(role, sizePx));
-    return epaper.textWidth(text);
-}
-
-static void drawFittedText(const char *text, int x, int y, uint8_t datum, SizeRole role, int sizePx) {
+static void text(const char *s, int x, int y, Role r, uint8_t datum = TL_DATUM) {
+    if (!s || !s[0]) return;
     epaper.setTextDatum(datum);
     epaper.setTextSize(1);
-    applyFont(fontFor(role, sizePx));
-    epaper.drawString(text, x, y);
+    useFont(r);
+    epaper.drawString(s, x, y);
 }
 
-void drawFrameScreen(ScreenState state, const ScreenContent &content) {
-    ScreenFit fit = fitScreen(state, content, BOARD_MODEL, FW_GIT_HASH, AP_NAME,
-                              epaper.width(), epaper.height(), realTextWidth);
+// Text set to the vertical centre of the 48px icon column at (iconX,iconY),
+// so icon + label line up regardless of font size.
+static void iconRow(const uint8_t *icon, const char *label, int iconX, int iconY,
+                    Role labelRole) {
+    epaper.drawBitmap(iconX, iconY, icon, ICON_W, ICON_H, TFT_BLACK);
+    text(label, iconX + ICON_W + 16, iconY + ICON_H / 2, labelRole, ML_DATUM);
+}
 
-    epaper.fillScreen(TFT_WHITE);
+static const uint8_t *batteryIcon(int pct) {
+    return pct >= 75 ? ICON_BATTERY_FULL
+         : pct >= 50 ? ICON_BATTERY_MEDIUM
+         : pct >= 25 ? ICON_BATTERY_LOW
+                     : ICON_BATTERY_EMPTY;
+}
+
+static const uint8_t *wifiIcon(const char *base) {
+    return strcmp(base, "strong") == 0 ? ICON_WIFI_FULL
+         : strcmp(base, "fair") == 0   ? ICON_WIFI_MEDIUM
+         : strcmp(base, "weak") == 0   ? ICON_WIFI_LOW
+                                        : ICON_WIFI_NONE;
+}
+
+// Spectra-6 self-test strip -- the one place colour is drawn on this screen.
+static void drawColorSwatch(int x, int y, int cellW, int cellH) {
+    static const uint16_t COLS[6] = {
+        TFT_BLACK, TFT_WHITE, TFT_YELLOW, TFT_RED, TFT_BLUE, TFT_GREEN};
+    for (int i = 0; i < 6; i++) {
+        const int cx = x + i * cellW;
+        epaper.fillRect(cx, y, cellW, cellH, COLS[i]);
+        epaper.drawRect(cx, y, cellW, cellH, TFT_BLACK); // outline so the white cell reads
+    }
+}
+
+// Draws the status/onboarding/error card as an overlay -- the caller has
+// already painted the background (the retained image, or white). Only the
+// 960x1056 card rectangle is touched.
+void drawFrameScreen(ScreenState state, const ScreenContent &content) {
+    const StatusData d = buildStatusData(state, content, FW_BUILD_NUMBER, AP_NAME,
+                                         PANEL_DESC, PANEL_W, PANEL_H);
+
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
 
-    const int cx = epaper.width() / 2;
-    const int unit = fit.sizes.chrome;
-    const int outerMargin = (int)(unit * GRID_OUTER_MARGIN);
-    const int sectionGap = (int)(unit * GRID_SECTION_GAP);
+    // ---- Card: opaque white panel + 2px rounded border, centred.
+    const int winX = GRID_MARGIN_X;
+    const int winY = GRID_MARGIN_Y;
+    epaper.fillRoundRect(winX, winY, GRID_WIN_W, GRID_WIN_H, GRID_WIN_RADIUS, TFT_WHITE);
+    epaper.drawRoundRect(winX, winY, GRID_WIN_W, GRID_WIN_H, GRID_WIN_RADIUS, TFT_BLACK);
+    epaper.drawRoundRect(winX + 1, winY + 1, GRID_WIN_W - 2, GRID_WIN_H - 2,
+                         GRID_WIN_RADIUS - 1, TFT_BLACK);
 
-    int y = outerMargin;
-    bool drewAnyZone = false;
+    const int ox = winX + GRID_PAD;          // content-box left
+    const int leftX = ox + gridColX(1);
+    const int rightX = ox + gridColX(7);     // right half-window
+    auto rule = [&](int yy) {
+        epaper.drawFastHLine(ox, yy, GRID_CONTENT_W, TFT_BLACK);
+    };
 
-    // ---- Header zone: title, board -- always present, centered.
-    for (int i = 0; i < fit.lineCount; i++) {
-        FitLine &fl = fit.lines[i];
-        if (fl.line.kind != LineKind::Title && fl.line.kind != LineKind::Board) continue;
-        int lineH = (int)(fl.fontPx * LINE_HEIGHT);
-        y += lineH / 2;
-        drawFittedText(fl.line.text, cx, y, MC_DATUM, fl.line.sizeRole, fl.fontPx);
-        y += lineH - lineH / 2;
+    int y = winY + GRID_PAD;
+
+    // ---- Header
+    text(d.title, leftX, y, Role::Title);
+    y += lineH(Role::Title);
+    text(d.versionLine, leftX, y, Role::Body);
+    y += lineH(Role::Body) + GRID_ZONE_PAD;
+    rule(y);
+    y += GRID_ZONE_PAD;
+
+    // ---- Status band: next-refresh (left cols 1-6), battery + Wi-Fi (right 7-12).
+    // The right column is two icon rows; the left column is centred against it.
+    {
+        const int rowGap = 20;
+        const int rightH = 2 * ICON_H + rowGap;
+        const int leftH = lineH(Role::Body) + lineH(Role::Value);
+        const int leftTop = y + (rightH - leftH) / 2;
+        text(d.nextLabel, leftX, leftTop, Role::Body);
+        text(d.nextValue, leftX, leftTop + lineH(Role::Body), Role::Value);
+
+        char pct[8];
+        snprintf(pct, sizeof(pct), "%d%%", d.batteryPct);
+        iconRow(batteryIcon(d.batteryPct), pct, rightX, y, Role::Body);
+        iconRow(wifiIcon(d.wifiBase), d.wifiHeading, rightX, y + ICON_H + rowGap,
+                Role::Heading);
+
+        y += rightH + GRID_ZONE_PAD;
     }
-    drewAnyZone = true;
+    rule(y);
+    y += GRID_ZONE_PAD;
 
-    // ---- Stats zone: icon + text, left-aligned after the icon column.
-    bool hasStats = false;
-    for (int i = 0; i < fit.lineCount; i++)
-        if (fit.lines[i].line.kind == LineKind::Stat) hasStats = true;
-    if (hasStats) {
-        if (drewAnyZone) y += sectionGap;
-        for (int i = 0; i < fit.lineCount; i++) {
-            FitLine &fl = fit.lines[i];
-            if (fl.line.kind != LineKind::Stat) continue;
-            int lineH = (int)(fl.fontPx * LINE_HEIGHT);
-            y += lineH / 2;
-            const int colCenterX = fit.marginX + (fit.rowW - fl.widthPx) / 2;
-            const uint8_t *bmp =
-                fl.line.icon == StatIcon::Wifi
-                    ? (strcmp(fl.line.wifiBase, "strong") == 0 ? ICON_WIFI_FULL
-                     : strcmp(fl.line.wifiBase, "fair") == 0   ? ICON_WIFI_MEDIUM
-                     : strcmp(fl.line.wifiBase, "weak") == 0   ? ICON_WIFI_LOW
-                                                                : ICON_WIFI_NONE)
-                : fl.line.icon == StatIcon::Next ? ICON_NEXT
-                : fl.line.icon == StatIcon::Battery
-                    ? (fl.line.batteryPct >= 75 ? ICON_BATTERY_FULL
-                     : fl.line.batteryPct >= 50 ? ICON_BATTERY_MEDIUM
-                     : fl.line.batteryPct >= 25 ? ICON_BATTERY_LOW
-                                                 : ICON_BATTERY_EMPTY)
-                    : nullptr;
-            if (bmp) drawStatusIcon(bmp, colCenterX - ICON_W / 2, y - ICON_H / 2, TFT_BLACK);
-            const int textX = fit.marginX + fit.rowW - fl.widthPx;
-            drawFittedText(fl.line.text, textX, y, ML_DATUM, fl.line.sizeRole, fl.fontPx);
-            y += lineH - lineH / 2;
-        }
-        drewAnyZone = true;
-    }
+    // ---- Action: QR (left cols 1-5), instructions + URLs (right cols 6-12)
+    {
+        const int qrBoxW = gridSpanW(1, 5);
+        const int scale = qrScaleForBox(qrBoxW, qrBoxW);
+        const int qrPx = QR_TOTAL_MODULES * scale;
+        const int qrCx = ox + gridColX(1) + qrBoxW / 2;
+        const int qrCy = y + qrPx / 2;
+        drawQrCode(String(d.qrPayload), qrCx, qrCy, scale);
 
-    // ---- Action zone: caption, QR, scan, url -- all centered.
-    bool hasAction = fit.qrScale > 0;
-    for (int i = 0; i < fit.lineCount; i++) {
-        LineKind k = fit.lines[i].line.kind;
-        if (k == LineKind::Caption || k == LineKind::Scan || k == LineKind::Url) hasAction = true;
-    }
-    if (hasAction) {
-        if (drewAnyZone) y += sectionGap;
-        for (int i = 0; i < fit.lineCount; i++) {
-            FitLine &fl = fit.lines[i];
-            if (fl.line.kind != LineKind::Caption) continue;
-            int lineH = (int)(fl.fontPx * LINE_HEIGHT);
-            y += lineH / 2;
-            drawFittedText(fl.line.text, cx, y, MC_DATUM, fl.line.sizeRole, fl.fontPx);
-            y += lineH - lineH / 2;
-        }
-        if (fit.qrScale > 0) {
-            y += (int)fit.qrGapPx;
-            const int qrCy = y + fit.qrPx / 2;
-            String payload = state == ScreenState::Onboarding
-                ? "WIFI:S:" + String(AP_NAME) + ";;"
-                : String(content.settingsUrl);
-            drawQrCode(payload, cx, qrCy, fit.qrScale);
-            y += fit.qrPx + (int)fit.qrGapPx;
-        }
-        for (int i = 0; i < fit.lineCount; i++) {
-            FitLine &fl = fit.lines[i];
-            if (fl.line.kind != LineKind::Scan && fl.line.kind != LineKind::Url) continue;
-            int lineH = (int)(fl.fontPx * LINE_HEIGHT);
-            y += lineH / 2;
-            drawFittedText(fl.line.text, cx, y, MC_DATUM, fl.line.sizeRole, fl.fontPx);
-            y += lineH - lineH / 2;
-        }
-        drewAnyZone = true;
-    }
+        const int tx = ox + gridColX(6);
+        int ty = y;
+        text(d.actionHeading, tx, ty, Role::Heading);   ty += lineH(Role::Heading) + 8;
+        text(d.actionLine1, tx, ty, Role::Body);        ty += lineH(Role::Body);
+        text(d.actionLine2, tx, ty, Role::Body);        ty += lineH(Role::Body) + 12;
+        text(d.urlPrimary, tx, ty, Role::Body);         ty += lineH(Role::Body);
+        text(d.urlSecondary, tx, ty, Role::Body);       ty += lineH(Role::Body);
 
-    // ---- Legend zone: keycap + text (full mode), or one centered line
-    // (combined mode -- no single keycap applies).
-    bool hasLegend = false;
-    for (int i = 0; i < fit.lineCount; i++) if (fit.lines[i].line.kind == LineKind::Legend) hasLegend = true;
-    if (hasLegend) {
-        if (drewAnyZone) y += sectionGap;
-        for (int i = 0; i < fit.lineCount; i++) {
-            FitLine &fl = fit.lines[i];
-            if (fl.line.kind != LineKind::Legend) continue;
-            int lineH = (int)(fl.fontPx * LINE_HEIGHT);
-            y += lineH / 2;
-            if (fl.line.keyLabel[0]) {
-                const int colCenterX = fit.marginX + (fit.rowW - fl.widthPx) / 2;
-                drawKeycap(fl.line.keyLabel, colCenterX, y, fl.fontPx, TFT_BLACK);
-                const int textX = fit.marginX + fit.rowW - fl.widthPx;
-                drawFittedText(fl.line.text, textX, y, ML_DATUM, fl.line.sizeRole, fl.fontPx);
-            } else {
-                drawFittedText(fl.line.text, cx, y, MC_DATUM, fl.line.sizeRole, fl.fontPx);
-            }
-            y += lineH - lineH / 2;
+        y += (qrPx > ty - y ? qrPx : ty - y) + GRID_ZONE_PAD;
+    }
+    rule(y);
+    y += GRID_ZONE_PAD;
+
+    // ---- Device: id (left cols 1-6), panel spec + swatch (right 7-12)
+    {
+        text(d.deviceIdLabel, leftX, y, Role::Body);
+        text(d.deviceId, leftX, y + lineH(Role::Body), Role::Heading);
+
+        text(d.panelDesc, rightX, y, Role::Body);
+        text(d.resLine, rightX, y + lineH(Role::Body), Role::Body);
+        drawColorSwatch(rightX, y + 2 * lineH(Role::Body) + 10, 44, 34);
+
+        y += 2 * lineH(Role::Body) + 10 + 34 + GRID_ZONE_PAD;
+    }
+    rule(y);
+    y += GRID_ZONE_PAD;
+
+    // ---- Legend: thirds (cols 1-4 / 5-8 / 9-12), keycap + phrase, all
+    // centred on one baseline.
+    {
+        const int startCol[3] = {1, 5, 9};
+        const int midY = y + 17;
+        for (int i = 0; i < 3; i++) {
+            if (!d.legend[i] || !d.legend[i][0]) continue;
+            const int cx = ox + gridColX(startCol[i]);
+            char digit[2] = {char('1' + i), '\0'};
+            drawKeycap(digit, cx + 17, midY, 34, TFT_BLACK);
+            text(d.legend[i], cx + 46, midY, Role::Body, ML_DATUM);
         }
     }
 
@@ -270,6 +259,10 @@ void drawStatusScreen(int32_t vbatMv, int32_t deltaMv, bool haveDelta) {
     ScreenContent content = gatherLiveContent(vbatMv, deltaMv, haveDelta);
     snapshotPrevious();
     PortraitScope portrait;
+    // The card sits over the retained image -- KEY1 toggles it without
+    // changing what's displayed. renderCachedPhoto() repaints the sprite
+    // with the current image; white only if there's no cache yet.
+    if (!renderCachedPhoto()) epaper.fillScreen(TFT_WHITE);
     drawFrameScreen(ScreenState::Normal, content);
     epaper.update();
 }

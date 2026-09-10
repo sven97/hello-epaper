@@ -18,7 +18,6 @@ void test_icon_arrays_are_288_bytes() {
     TEST_ASSERT_EQUAL(288, sizeof(ICON_WIFI_MEDIUM));
     TEST_ASSERT_EQUAL(288, sizeof(ICON_WIFI_LOW));
     TEST_ASSERT_EQUAL(288, sizeof(ICON_WIFI_NONE));
-    TEST_ASSERT_EQUAL(288, sizeof(ICON_NEXT));
 }
 
 // Sanity, not a full pixel audit: the battery outline's top bar (rows

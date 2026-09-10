@@ -1,6 +1,7 @@
 #pragma once
 #include <TFT_eSPI.h> // Seeed_GFX; provides EPaper for the selected combo
 #include "icons.h"
+#include "logic/status_content.h" // ScreenState, ErrorKind, ScreenContent
 
 extern EPaper epaper;
 
@@ -14,27 +15,15 @@ extern EPaper epaper;
 // to be read back as its true displayed color (e.g. screencapture.cpp).
 uint16_t truePixelColor(int x, int y);
 
-// True if this panel's native (rotation 0) shape is wider than tall.
-// EE02's native panel is portrait (1200x1600), but EE03/EE04/EE05's native
-// panels are landscape (e.g. 800x480) -- rotation 0 does NOT universally
-// mean "portrait", so the rotation dropdown's labels must be computed from
-// this per board, not hardcoded (see portal.cpp's rotOptions()), and the
-// unified status screen's portrait-forcing (PortraitScope below) uses it
-// to pick the right rotation value too.
-constexpr bool PANEL_NATIVE_LANDSCAPE = TFT_WIDTH > TFT_HEIGHT;
-
 // Apply the configured orientation (settings.rotation -> setRotation).
 // Call once after epaper.begin(), before any drawing.
 void applyOrientation();
 
-// RAII scope guard for the unified status/onboarding/error screen (see
-// docs/superpowers/specs/2026-08-18-unified-status-screen-design.md):
-// forces portrait regardless of settings.rotation for its lifetime, then
-// restores the configured orientation on scope exit. Construct one
-// around the draw + epaper.update() call for that screen -- restoring
-// only after update() matters, since the sprite's own dimensions (and
-// therefore what update() pushes) follow whatever rotation is active
-// while it's drawn.
+// RAII scope guard for the unified status/onboarding/error screen. The
+// EE02 panel is portrait-native, so nothing has to be swapped -- this is
+// now a no-op kept only so the status/onboarding/error call sites don't
+// churn. (Photo display still honours settings.rotation via
+// applyOrientation().)
 struct PortraitScope {
     PortraitScope();
     ~PortraitScope();
@@ -61,13 +50,9 @@ void drawKeycap(const char *digit, int cx, int cy, int sizePx, uint32_t fgColor)
 // panel's palette, and write it into the sprite (no update()).
 bool renderJpeg(uint8_t *buf, size_t len);
 
-// For gray-capable panels (e.g. EE03): switch the sprite into
-// USE_MUTIGRAY_EPAPER's gray mode. No-op on panels that don't support it.
-// Call once after epaper.begin() / applyOrientation(), before drawing.
-void initPanelColorMode();
-
-// Full-panel error screen. Gathers live battery/Wi-Fi/next-fetch state
-// (see ui.h's gatherLiveContent()) plus `msg`, then draws the unified
-// frame's Error state and calls update(). Only drawn when someone is
+// Error card over the retained image. `kind` picks the framing: Wifi
+// blanks the signal row ("Wi-Fi problem"), Image keeps the real SSID +
+// signal ("Image source problem") since the network is fine. `msg` is the
+// specific reason, shown in the action zone. Only drawn when someone is
 // watching (button-initiated actions) -- unattended wakes keep the photo.
-void showError(const String &msg);
+void showError(const String &msg, ErrorKind kind = ErrorKind::Wifi);

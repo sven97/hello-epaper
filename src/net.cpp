@@ -73,15 +73,16 @@ public:
 
 // First-boot / stale-credentials instructions -- the unified frame's
 // Onboarding state. Battery is read fresh (no Wi-Fi/NVS metadata exists
-// yet before a connection); Wi-Fi/next-fetch stay "--" (see the design
-// spec's per-state field table).
+// yet before a connection); buildStatusData() supplies the Onboarding
+// state's Wi-Fi / next-refresh wording.
 static void showProvisioningScreen() {
     ScreenContent content{};
     content.batteryPct = batteryPercent(readBatteryMv());
-    strncpy(content.wifiBase, "--", sizeof(content.wifiBase) - 1);
-    strncpy(content.nextBase, "--", sizeof(content.nextBase) - 1);
+    deviceIdFromMac(content.deviceId, sizeof(content.deviceId), ESP.getEfuseMac());
     snapshotPrevious();
     PortraitScope portrait;
+    // First boot -- no retained image to sit over.
+    if (!renderCachedPhoto()) epaper.fillScreen(TFT_WHITE);
     drawFrameScreen(ScreenState::Onboarding, content);
     epaper.update();
 }

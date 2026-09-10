@@ -20,6 +20,11 @@ read the hash — then `git show <hash>` locally to see what it was built
 from. If a build ever runs outside a git checkout (e.g. a source tarball),
 `FW_GIT_HASH` falls back to `"unknown"` rather than failing the build.
 
+The on-device **status screen** shows `FW_BUILD_NUMBER` instead (as
+`Firmware build <N>`) — a monotonic number reads better than a hash for a
+walk-up glance, and it's the same value the auto-update path compares. The
+hash stays the developer-facing identifier on `/log` and `/debug`.
+
 ## `FW_BUILD_NUMBER` — the auto-update ordering key
 
 The git hash identifies *which* commit a build came from but can't answer
